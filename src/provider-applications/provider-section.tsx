@@ -44,6 +44,7 @@ import type {
   ProviderApplicationSaveResult,
   ProviderApplicationSurface,
   ProviderApplicationView,
+  ProviderConnectionStart,
 } from "./index.js";
 
 export interface SectionReturn {
@@ -54,7 +55,7 @@ export interface SectionReturn {
 type Outcome = SectionReturn;
 
 type SaveResponse = Result<ProviderApplicationSaveResult>;
-type ConnectResponse = Result<{ url: string }>;
+type ConnectResponse = Result<ProviderConnectionStart>;
 type VoidResponse = Result<void>;
 interface SaveMutationInput {
   data: Record<string, unknown> & { provider: string; transport?: "socket" | "webhook" };
@@ -152,6 +153,13 @@ export function ProviderSection({
         setOutcome({ tone: "error", message: response.error.message });
         return;
       }
+      // A gateway provider already holds its credential, so its connect finishes here and reports
+      // what it bound instead of sending the browser anywhere.
+      if (!("url" in response.data)) {
+        setOutcome({ tone: "success", message: connectedMessage(guide, response.data.connected) });
+        void queryClient.invalidateQueries({ queryKey: ["provider-applications"] });
+        return;
+      }
       window.location.assign(response.data.url);
     },
     onError: () => setOutcome({ tone: "error", message: unreachable(guide.name) }),
@@ -174,7 +182,7 @@ export function ProviderSection({
   // form cannot be submitted twice in the gap.
   const leaving =
     (save.isSuccess && save.data.status === "ok" && save.data.data.status === "continuing") ||
-    (connect.isSuccess && connect.data.status === "ok");
+    (connect.isSuccess && connect.data.status === "ok" && "url" in connect.data.data);
   const busy = pending || leaving;
 
   const submit = useCallback(
@@ -485,6 +493,7 @@ function summaryRows(
       ),
   });
   if (guide.receivesEvents) rows.push({ label: "Events", value: eventState(guide, view, origin) });
+  if (view.gateway !== null) rows.push({ label: "Gateway", value: gatewayState(view.gateway) });
   if (view.managedByEnvironment) {
     for (const field of guideFields(guide, origin)) {
       if (field.identifier === undefined) continue;
@@ -493,6 +502,48 @@ function summaryRows(
     }
   }
   return rows;
+}
+
+/**
+ * A gateway provider connects out, so nothing in the database says whether it is alive. This
+ * reports the socket held by *this machine* — a Hub running several machines holds one socket
+ * per machine, and the label says so rather than implying a single global connection.
+ */
+function gatewayState(gateway: NonNullable<ProviderApplicationView["gateway"]>): ReactNode {
+  const detail =
+    gateway.lastEventAt === null ? null : (
+      <>
+        {" · last event "}
+        <RelativeTime value={gateway.lastEventAt} />
+      </>
+    );
+  if (gateway.status === "connected") {
+    return (
+      <>
+        Connected
+        {gateway.connectedSince === null ? null : (
+          <>
+            {" since "}
+            <RelativeTime value={gateway.connectedSince} />
+          </>
+        )}
+        {detail}
+        <span className="text-muted-foreground"> · this machine</span>
+      </>
+    );
+  }
+  if (gateway.status === "idle") return <span className="text-muted-foreground">Not running</span>;
+  const label = gateway.status === "connecting" ? "Connecting" : "Disconnected";
+  return (
+    <>
+      <span className={gateway.status === "disconnected" ? "text-warning" : undefined}>
+        {label}
+      </span>
+      {gateway.consecutiveFailures > 0 ? ` · ${gateway.consecutiveFailures} failed attempts` : null}
+      {gateway.lastError === null ? null : ` · ${gateway.lastError}`}
+      <span className="text-muted-foreground"> · this machine</span>
+    </>
+  );
 }
 
 /** Says only what the boundary can prove: a signed delivery arrived, or nothing has yet. */
@@ -888,6 +939,17 @@ function stepKey(step: GuideStep): string {
 function rawValue(form: FormData, name: string): string {
   const value = form.get(name);
   return typeof value === "string" ? value : "";
+}
+
+/**
+ * Names what a non-redirect connect actually bound. "Connected." alone leaves the operator
+ * guessing which of the bot's teams Hub took, which is the one thing they need to know.
+ */
+function connectedMessage(guide: ProviderGuide, connected: readonly string[]): string {
+  const label = guide.summaryLabels.connections.toLowerCase();
+  return connected.length === 1
+    ? `Connected 1 ${label.replace(/s$/u, "")}.`
+    : `Connected ${String(connected.length)} ${label}.`;
 }
 
 function unreachable(name: string): string {

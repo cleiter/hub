@@ -1,0 +1,36 @@
+{
+  "_note": "Probe of data.mentions semantics on Mattermost 11.10.0. Recorded, not authored.",
+  "_finding": "@channel/@all/@here put the bot in data.mentions. mentions alone is NOT a sufficient mention test; an explicit @botusername word-boundary check is required to exclude broadcasts.",
+  "samples": [
+    {
+      "message": "@channel deploy is going out",
+      "mentions": "[\"r8busjtmztnxdro8a1bam8j5fh\"]",
+      "botMentioned": true
+    },
+    {
+      "message": "@all heads up everyone",
+      "mentions": "[\"r8busjtmztnxdro8a1bam8j5fh\"]",
+      "botMentioned": true
+    },
+    {
+      "message": "@here quick question",
+      "mentions": "[\"r8busjtmztnxdro8a1bam8j5fh\"]",
+      "botMentioned": true
+    },
+    {
+      "message": "hey @paseobot ping",
+      "mentions": "[\"r8busjtmztnxdro8a1bam8j5fh\"]",
+      "botMentioned": true
+    },
+    {
+      "message": "email me at paseobot@example.com not a mention",
+      "mentions": null,
+      "botMentioned": false
+    },
+    {
+      "message": "@paseobotter is a different user",
+      "mentions": null,
+      "botMentioned": false
+    }
+  ]
+}

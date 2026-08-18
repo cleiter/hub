@@ -6,6 +6,7 @@ import type {
   ProviderApplicationVerifier,
 } from "../index.js";
 import { ProviderVerificationError } from "../index.js";
+import { normalizeMattermostOrigin } from "../../triggers/mattermost/client.js";
 
 const githubIdentitySchema = z.object({
   id: z.union([z.number(), z.string()]),
@@ -18,6 +19,11 @@ const discordIdentitySchema = z.object({
   bot: z.literal(true),
 });
 const discordTokenSchema = z.object({ access_token: z.string().min(1) });
+const mattermostIdentitySchema = z.object({
+  id: z.string().min(1),
+  username: z.string().min(1),
+  is_bot: z.boolean().default(false),
+});
 const DEFAULT_TIMEOUT_MS = 8_000;
 const DISCORD_API = "https://discord.com/api/v10";
 
@@ -43,11 +49,58 @@ export function createProviderApplicationVerifier(
       if (configuration.provider === "discord") {
         return verifyDiscord(configuration, request, timeoutMs);
       }
+      if (configuration.provider === "mattermost") {
+        return verifyMattermost(configuration, request, timeoutMs);
+      }
       // Slack client credentials have no honest verification endpoint. They are verified only
       // by the OAuth installation callback, where the returned bot token is tested.
       return Promise.reject(new ProviderVerificationError("credentialsRejected"));
     },
   };
+}
+
+/**
+ * Unlike Slack, Mattermost has an honest save-time check: the bot token either authenticates
+ * against this server or it does not. Doing it here means a wrong address or a revoked token
+ * fails at save rather than becoming a gateway that silently never triggers.
+ */
+async function verifyMattermost(
+  configuration: Extract<ProviderApplicationConfiguration, { provider: "mattermost" }>,
+  request: typeof fetch,
+  timeoutMs: number,
+): Promise<ProviderApplicationIdentity> {
+  let origin: URL;
+  try {
+    origin = normalizeMattermostOrigin(configuration.serverUrl);
+  } catch {
+    throw new ProviderVerificationError("credentialsRejected", undefined, {
+      subject: "serverUrl",
+    });
+  }
+  const response = await fixedRequest(
+    request,
+    new URL(`${origin.pathname.replace(/\/$/u, "")}/api/v4/users/me`, origin).toString(),
+    { headers: { authorization: `Bearer ${configuration.botToken}` } },
+    timeoutMs,
+  );
+  if (response.status === 401 || response.status === 403) {
+    throw new ProviderVerificationError("credentialsRejected", response.status, {
+      subject: "botToken",
+    });
+  }
+  rejectFailedResponse(response);
+  const body = await safeJson(response);
+  if (body === undefined) throw new ProviderVerificationError("invalidResponse", response.status);
+  const parsed = mattermostIdentitySchema.safeParse(body);
+  if (!parsed.success) throw new ProviderVerificationError("invalidResponse", response.status);
+  // A personal access token would also authenticate here, but it belongs to a human whose
+  // account can be disabled or whose password reset revokes it. Require a real bot account.
+  if (!parsed.data.is_bot) {
+    throw new ProviderVerificationError("credentialsRejected", undefined, {
+      subject: "botToken",
+    });
+  }
+  return { provider: "mattermost", id: origin.origin, name: parsed.data.username };
 }
 
 async function verifyGitHub(

@@ -9,6 +9,7 @@ it("keeps provider readiness separate from connection inventory", () => {
     discord: { status: "connected" },
     slack: { status: "disconnected" },
     linear: { status: "disconnected" },
+    mattermost: { status: "notConfigured" },
   });
   assert.deepEqual(status, {
     canManage: true,
@@ -16,5 +17,6 @@ it("keeps provider readiness separate from connection inventory", () => {
     discord: { status: "connected" },
     slack: { status: "disconnected" },
     linear: { status: "disconnected" },
+    mattermost: { status: "notConfigured" },
   });
 });

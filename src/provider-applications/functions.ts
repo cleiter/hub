@@ -1,17 +1,20 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
-import { respondOk, type Result } from "../contract/respond.js";
+import { respondError, respondOk, type Result } from "../contract/respond.js";
 import { respondWithFailure } from "../failures/index.js";
 import { getApplication } from "../server/runtime.js";
 import {
+  PROVIDERS,
+  ProviderConnectionRefusedError,
   type ProviderApplicationConfiguration,
   type ProviderApplicationOverview,
   type ProviderApplicationSaveResult,
+  type ProviderConnectionStart,
 } from "./index.js";
 import { providerApplicationSaveFailure, providerHost, providerName } from "./save-failure.js";
 
-const providerSchema = z.enum(["github", "slack", "discord", "linear"]);
+const providerSchema = z.enum(PROVIDERS);
 const surfaceSchema = z.enum(["appSetup", "apps"]).optional();
 const expectedVersionSchema = z.number().int().positive().optional();
 const configurationSchema = z.discriminatedUnion("provider", [
@@ -50,6 +53,13 @@ const configurationSchema = z.discriminatedUnion("provider", [
     clientId: z.string().trim().min(1),
     clientSecret: z.string().min(1),
     webhookSecret: z.string().min(1),
+    expectedVersion: expectedVersionSchema,
+    surface: surfaceSchema,
+  }),
+  z.object({
+    provider: z.literal("mattermost"),
+    serverUrl: z.string().trim().min(1),
+    botToken: z.string().min(1),
     expectedVersion: expectedVersionSchema,
     surface: surfaceSchema,
   }),
@@ -106,13 +116,14 @@ export const verifyAndSaveProviderApplication = createServerFn({ method: "POST" 
         data.provider,
         error,
         sensitiveConfigurationValues(data),
+        data.provider === "mattermost" ? { host: data.serverUrl } : {},
       );
     }
   });
 
 export const beginProviderConnection = createServerFn({ method: "POST" })
   .validator(connectionSchema)
-  .handler(async ({ data }): Promise<Result<{ url: string }>> => {
+  .handler(async ({ data }): Promise<Result<ProviderConnectionStart>> => {
     try {
       const capability = (await getApplication()).providerApplications;
       if (capability === null) throw new Error("unavailable");
@@ -125,6 +136,11 @@ export const beginProviderConnection = createServerFn({ method: "POST" })
         ),
       );
     } catch (error) {
+      // The provider said no for a reason the operator can fix. Reporting it as a failure would
+      // bury that reason under generic "something went wrong" copy.
+      if (error instanceof ProviderConnectionRefusedError) {
+        return respondError({ message: error.reason });
+      }
       const name = providerName(data.provider);
       return respondWithFailure(
         error,
@@ -202,6 +218,9 @@ function sensitiveConfigurationValues(
   if (configuration.provider === "linear") {
     return [configuration.clientSecret, configuration.webhookSecret];
   }
+  // The server address is not a secret and stays out of the scrub list — scrubbing it would
+  // redact it from the very error messages that name which host Hub could not reach.
+  if (configuration.provider === "mattermost") return [configuration.botToken];
   return [configuration.clientSecret, configuration.botToken];
 }
 
@@ -239,6 +258,14 @@ function normalizedConfiguration(
       clientId: data.clientId,
       clientSecret: data.clientSecret,
       webhookSecret: data.webhookSecret,
+      ...version,
+    };
+  }
+  if (data.provider === "mattermost") {
+    return {
+      provider: data.provider,
+      serverUrl: data.serverUrl,
+      botToken: data.botToken,
       ...version,
     };
   }

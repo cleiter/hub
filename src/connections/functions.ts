@@ -3,6 +3,7 @@ import { getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { respondOk, type Result } from "../contract/respond.js";
 import { respondWithFailure } from "../failures/index.js";
+import { mattermostStartRefusal } from "../providers/mattermost/refusals.js";
 import { handleConnections } from "../server/runtime.js";
 import {
   CONNECTION_PROVIDERS,
@@ -40,12 +41,20 @@ const linearStatusSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("requiresReauthorization") }),
   z.object({ status: z.literal("connected") }),
 ]);
+const mattermostStatusSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("notConfigured") }),
+  z.object({ status: z.literal("disconnected") }),
+  z.object({
+    status: z.literal("connected"),
+  }),
+]);
 export const connectionStatusSchema = z.object({
   canManage: z.boolean(),
   github: githubStatusSchema,
   discord: discordStatusSchema,
   slack: slackStatusSchema,
   linear: linearStatusSchema,
+  mattermost: mattermostStatusSchema,
 });
 const scopeSchema = z.object({
   organizationSlug: z.string().min(1),
@@ -55,7 +64,16 @@ const providerSchema = scopeSchema.extend({
   provider: z.enum(CONNECTION_PROVIDERS),
 });
 const disconnectSchema = providerSchema.extend({ connectionId: z.string().uuid() });
-const startSchema = z.object({ url: z.string().url() });
+/**
+ * GitHub, Slack, and Discord send the admin to the provider to authorize. Mattermost has no
+ * such round trip — Hub already holds the bot credential — so starting a connection completes
+ * it, and the surface has to be able to tell the two answers apart.
+ */
+const startSchema = z.union([
+  z.object({ url: z.string().url() }),
+  z.object({ connected: z.array(z.string()) }),
+]);
+export type ConnectionStartResult = z.infer<typeof startSchema>;
 
 export type ConnectionStatus = z.infer<typeof connectionStatusSchema>;
 export type ConnectionDisconnectResult = `${ConnectionProvider}_disconnected`;
@@ -86,7 +104,7 @@ export const connectionStatus = createServerFn({ method: "GET" })
 
 export const startConnection = createServerFn({ method: "POST" })
   .validator(providerSchema)
-  .handler(async ({ data }): Promise<Result<{ url: string }>> => {
+  .handler(async ({ data }): Promise<Result<ConnectionStartResult>> => {
     const name = connectionProviderName(data.provider);
     try {
       const operation = CONNECTION_OPERATIONS[data.provider].start;
@@ -103,10 +121,16 @@ export const startConnection = createServerFn({ method: "POST" })
         );
       }
       if (!response.ok) {
+        // Mattermost binds the bot's teams directly, so a refusal here has a specific cause the
+        // operator can act on — saying "check provider availability" would send them looking in
+        // the wrong place.
+        const specific =
+          response.status === 409 ? await mattermostStartRefusal(response) : undefined;
         return connectionResponseFailure(
           "connection.start",
           response,
-          `Hub couldn't start the ${name} connection. Check the app status and provider availability before starting again.`,
+          specific ??
+            `Hub couldn't start the ${name} connection. Check the app status and provider availability before starting again.`,
           data,
         );
       }
@@ -157,6 +181,7 @@ const CONNECTION_OPERATIONS = {
   discord: { start: "discordStart", disconnect: "discordDisconnect" },
   slack: { start: "slackStart", disconnect: "slackDisconnect" },
   linear: { start: "linearStart", disconnect: "linearDisconnect" },
+  mattermost: { start: "mattermostStart", disconnect: "mattermostDisconnect" },
 } as const;
 
 function connectionContext(

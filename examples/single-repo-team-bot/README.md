@@ -1,6 +1,6 @@
 # Single-repository team bot
 
-Run a Codex classifier and worker from Discord, Slack, or GitHub. Every step gets an isolated
+Run a Codex classifier and worker from Discord, Slack, Mattermost, or GitHub. Every step gets an isolated
 worktree based on `origin/main`.
 
 ## Configure the example
@@ -15,10 +15,12 @@ Copy `.paseo` to your repository root, then replace these values:
 | `your-github-connection`            | GitHub connection slug in Hub            |
 | `YOUR_DISCORD_USER_ID`              | Discord user allowed to trigger runs     |
 | `YOUR_SLACK_USER_ID`                | Slack user allowed to trigger runs       |
+| `YOUR_MATTERMOST_USERNAME`          | Mattermost user allowed to trigger runs  |
 | `your-github-login`                 | GitHub user allowed to trigger runs      |
 | `@your-bot`                         | Mention that starts the GitHub workflow  |
 
-Connect Discord, Slack, and GitHub to the project before enabling their triggers. Keep the user
+Connect Discord, Slack, Mattermost, and GitHub to the project before enabling their triggers.
+The Mattermost bot must also be added to each channel it should watch. Keep the user
 allowlists narrow; wildcards are not supported.
 
 ## Deploy

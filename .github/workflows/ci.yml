@@ -131,6 +131,12 @@ jobs:
       - name: Build production application
         run: npm run build
 
+      # Boots the built output the way production does. The test job cannot catch an
+      # ESM/CommonJS interop failure, because vitest resolves named exports that Node's real
+      # loader refuses.
+      - name: Boot the built application
+        run: npm run smoke:boot
+
   browser-e2e:
     runs-on: ubuntu-latest
     env:

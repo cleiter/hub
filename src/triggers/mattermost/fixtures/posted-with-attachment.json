@@ -1,0 +1,23 @@
+{
+  "broadcast": {
+    "channel_id": "inxywfxq4fdc78fzp6x1diictr",
+    "connection_id": "",
+    "omit_connection_id": "",
+    "omit_users": null,
+    "team_id": "",
+    "user_id": ""
+  },
+  "data": {
+    "channel_display_name": "General Paseo",
+    "channel_name": "general-paseo",
+    "channel_type": "O",
+    "mentions": "[\"r8busjtmztnxdro8a1bam8j5fh\"]",
+    "otherFile": "true",
+    "post": "{\"id\":\"tp8z74xkcpnz8b5kpsehmw3wye\",\"create_at\":1786973485934,\"update_at\":1786973485934,\"edit_at\":0,\"delete_at\":0,\"is_pinned\":false,\"user_id\":\"jnrisb1fmfbafr3dmu8nufts9r\",\"channel_id\":\"inxywfxq4fdc78fzp6x1diictr\",\"root_id\":\"\",\"original_id\":\"\",\"message\":\"@paseobot check this file\",\"type\":\"\",\"props\":{},\"hashtags\":\"\",\"file_ids\":[\"5h3gef9h3tdxpgu3hckypfzbhe\"],\"pending_post_id\":\"\",\"remote_id\":\"\",\"reply_count\":0,\"last_reply_at\":0,\"participants\":null,\"metadata\":{\"files\":[{\"id\":\"5h3gef9h3tdxpgu3hckypfzbhe\",\"user_id\":\"jnrisb1fmfbafr3dmu8nufts9r\",\"post_id\":\"tp8z74xkcpnz8b5kpsehmw3wye\",\"channel_id\":\"inxywfxq4fdc78fzp6x1diictr\",\"create_at\":1786973485898,\"update_at\":1786973485898,\"delete_at\":0,\"name\":\"notes.txt\",\"extension\":\"txt\",\"size\":24,\"mime_type\":\"text/plain; charset=utf-8\",\"mini_preview\":null,\"remote_id\":\"\",\"archived\":false}]}}",
+    "sender_name": "@admin",
+    "set_online": true,
+    "team_id": "n647fxr7atdepji7rcpw4qtdia"
+  },
+  "event": "posted",
+  "seq": 2
+}

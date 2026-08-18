@@ -17,7 +17,7 @@ live in `MAINTAINERS.md`.
 
 Paseo Hub is an open, self-hosted coordination layer for the agents users already run.
 
-It connects conversations and events from services such as GitHub, Slack, and Discord to configurable, multi-step agent workflows without taking ownership of the user's code, credentials, infrastructure, or security model.
+It connects conversations and events from services such as GitHub, Slack, Discord, and Mattermost to configurable, multi-step agent workflows without taking ownership of the user's code, credentials, infrastructure, or security model.
 
 Hub provides explicit building blocks: triggers, routing, environments, provider settings, credentials, context, outputs, and completion contracts. Workflow authors decide which building blocks each step receives and how they are composed. Hub must never silently broaden permissions, inject context, rewrite prompts, or impose a particular way of working.
 

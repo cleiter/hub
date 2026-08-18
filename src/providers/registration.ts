@@ -69,8 +69,26 @@ export interface ProviderAttachmentRegistration {
   resolve: AttachmentResolver;
 }
 
+/**
+ * Health of a provider that holds a long-lived outbound connection instead of receiving signed
+ * webhooks. Gateway providers have no request log to infer liveness from, so without this a dead
+ * socket and a quiet channel are indistinguishable.
+ *
+ * This is per-process state: a Hub running more than one machine has one record per machine, and
+ * any surface that renders it must say so.
+ */
+export interface GatewayLiveness {
+  status: "idle" | "connecting" | "connected" | "disconnected";
+  connectedSince: string | null;
+  lastEventAt: string | null;
+  consecutiveFailures: number;
+  lastError: string | null;
+}
+
 export interface ProviderRegistration {
   configurationSnapshot?: { version: number; callbackOrigin: string };
+  /** Present only for gateway providers; reports this process's socket health. */
+  gateway?: () => GatewayLiveness;
   connection: ProviderConnectionRegistration;
   integration?: ProviderIntegrationRegistration;
   triggerProviders: readonly TriggerProviderFactory[];

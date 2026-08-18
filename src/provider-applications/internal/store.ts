@@ -2,6 +2,8 @@ import { z } from "zod";
 import type { DatabaseRuntime, QueryRow } from "../../db/runtime/index.js";
 import type { Locks } from "../../db/runtime/locks/index.js";
 import type { Database } from "../../db/types.js";
+import { PROVIDERS } from "../index.js";
+import { connectionTable } from "./inventory.js";
 import type {
   Provider,
   ProviderApplicationConfiguration,
@@ -48,11 +50,17 @@ const linearConfigurationSchema = z.object({
   clientSecret: z.string().min(1),
   webhookSecret: z.string().min(1),
 });
+const mattermostConfigurationSchema = z.object({
+  provider: z.literal("mattermost"),
+  serverUrl: z.string().min(1),
+  botToken: z.string().min(1),
+});
 const configurationSchema = z.discriminatedUnion("provider", [
   githubConfigurationSchema,
   slackConfigurationSchema,
   discordConfigurationSchema,
   linearConfigurationSchema,
+  mattermostConfigurationSchema,
 ]);
 
 /** @package */
@@ -76,6 +84,7 @@ const identitySchema = z.discriminatedUnion("provider", [
   z.object({ provider: z.literal("slack"), id: z.string().min(1), name: z.string().min(1) }),
   z.object({ provider: z.literal("discord"), id: z.string().min(1), name: z.string().min(1) }),
   z.object({ provider: z.literal("linear"), id: z.string().min(1), name: z.string().min(1) }),
+  z.object({ provider: z.literal("mattermost"), id: z.string().min(1), name: z.string().min(1) }),
 ]);
 
 interface ProviderConfigurationRow extends QueryRow {
@@ -333,13 +342,6 @@ async function writeProviderActivation(
   );
 }
 
-function connectionTable(provider: Provider): string {
-  if (provider === "github") return "github_connections";
-  if (provider === "slack") return "slack_connections";
-  if (provider === "linear") return "linear_connections";
-  return "discord_connections";
-}
-
 function parseRow(row: ProviderConfigurationRow): StoredProviderApplication {
   const provider = providerSchema(row.provider);
   const configuration = parseProviderApplicationConfiguration(row.configuration);
@@ -359,8 +361,7 @@ function parseRow(row: ProviderConfigurationRow): StoredProviderApplication {
 }
 
 function providerSchema(value: string): Provider {
-  if (value === "github" || value === "slack" || value === "discord" || value === "linear") {
-    return value;
-  }
+  const provider = PROVIDERS.find((candidate) => candidate === value);
+  if (provider !== undefined) return provider;
   throw new Error("stored provider configuration has invalid provider");
 }

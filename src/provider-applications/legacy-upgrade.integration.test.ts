@@ -109,7 +109,9 @@ describe("pre-provider-app connection upgrade", () => {
         });
 
         assert.deepEqual(failures, []);
-        assert.deepEqual(runtime.published, ["github", "slack", "discord", "linear"]);
+        assert.deepEqual(runtime.published, ["github", "slack", "discord", "linear", "mattermost"]);
+        // Linear and Mattermost are left out of the loop below on purpose: they postdate these
+        // legacy rows, so there is no pre-upgrade connection for them to carry forward.
         for (const provider of ["github", "slack", "discord"] as const) {
           assert.deepEqual(
             (await inventory.connectedIdentities(provider)).map(
@@ -119,6 +121,7 @@ describe("pre-provider-app connection upgrade", () => {
           );
         }
         assert.deepEqual(await inventory.connectedIdentities("linear"), []);
+        assert.deepEqual(await inventory.connectedIdentities("mattermost"), []);
 
         const changed = new RecordingRuntime();
         const changedFailures = await activateProviderApplicationsAtStartup({
@@ -173,6 +176,11 @@ const ENVIRONMENT_APPLICATIONS = {
     clientId: "linear-client",
     clientSecret: "linear-secret",
     webhookSecret: "linear-webhook-secret",
+  },
+  mattermost: {
+    provider: "mattermost",
+    serverUrl: "https://mattermost.example.com",
+    botToken: "mattermost-token",
   },
 } satisfies Record<Provider, ProviderApplicationConfiguration>;
 
@@ -327,6 +335,9 @@ function identity(configuration: ProviderApplicationConfiguration): ProviderAppl
   }
   if (configuration.provider === "linear") {
     return { provider: "linear", id: configuration.clientId, name: "Linear app" };
+  }
+  if (configuration.provider === "mattermost") {
+    return { provider: "mattermost", id: configuration.serverUrl, name: "paseobot" };
   }
   return { provider: "discord", id: configuration.applicationId, name: "Discord app" };
 }

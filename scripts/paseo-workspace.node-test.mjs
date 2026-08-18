@@ -37,7 +37,13 @@ test("dev never builds, never redirects the data directory, and never blanks con
   const { environment, build } = planWorkspaceAction("dev", workspace);
   assert.equal(build, false);
   assert.equal("PASEO_HUB_DATA_DIR" in environment, false);
-  for (const name of ["DATABASE_URL", "GITHUB_APP_ID", "SLACK_CLIENT_ID", "DISCORD_BOT_TOKEN"]) {
+  for (const name of [
+    "DATABASE_URL",
+    "GITHUB_APP_ID",
+    "SLACK_CLIENT_ID",
+    "DISCORD_BOT_TOKEN",
+    "MATTERMOST_URL",
+  ]) {
     assert.equal(name in environment, false, `dev must leave ${name} alone`);
   }
 });
@@ -52,7 +58,13 @@ test("evidence is its own action and is never what dev runs", () => {
     evidence.environment.PASEO_HUB_DATA_DIR,
     "/tmp/workspace/.dev/operator-app-evidence/runtime",
   );
-  for (const name of ["DATABASE_URL", "GITHUB_APP_ID", "SLACK_CLIENT_ID", "DISCORD_BOT_TOKEN"]) {
+  for (const name of [
+    "DATABASE_URL",
+    "GITHUB_APP_ID",
+    "SLACK_CLIENT_ID",
+    "DISCORD_BOT_TOKEN",
+    "MATTERMOST_URL",
+  ]) {
     assert.equal(evidence.environment[name], "", `evidence must start with no ${name}`);
   }
 });

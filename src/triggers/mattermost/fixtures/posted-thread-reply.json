@@ -1,0 +1,23 @@
+{
+  "broadcast": {
+    "channel_id": "inxywfxq4fdc78fzp6x1diictr",
+    "connection_id": "",
+    "omit_connection_id": "",
+    "omit_users": null,
+    "team_id": "",
+    "user_id": ""
+  },
+  "data": {
+    "channel_display_name": "General Paseo",
+    "channel_name": "general-paseo",
+    "channel_type": "O",
+    "followers": "[\"r8busjtmztnxdro8a1bam8j5fh\"]",
+    "mentions": "[\"r8busjtmztnxdro8a1bam8j5fh\"]",
+    "post": "{\"id\":\"k5tnqbejtj8b7rkdypomrnh6jw\",\"create_at\":1786973407707,\"update_at\":1786973407707,\"edit_at\":0,\"delete_at\":0,\"is_pinned\":false,\"user_id\":\"jnrisb1fmfbafr3dmu8nufts9r\",\"channel_id\":\"inxywfxq4fdc78fzp6x1diictr\",\"root_id\":\"gya6fp1krpnzurby4ko68edsiw\",\"original_id\":\"\",\"message\":\"@paseobot follow up in thread\",\"type\":\"\",\"props\":{},\"hashtags\":\"\",\"file_ids\":[],\"pending_post_id\":\"\",\"remote_id\":\"\",\"reply_count\":1,\"last_reply_at\":0,\"participants\":null,\"metadata\":{}}",
+    "sender_name": "@admin",
+    "set_online": true,
+    "team_id": "n647fxr7atdepji7rcpw4qtdia"
+  },
+  "event": "posted",
+  "seq": 3
+}

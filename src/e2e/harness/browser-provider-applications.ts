@@ -3,6 +3,9 @@ import type { Database } from "../../db/types.js";
 import { createDiscordRegistration } from "../../providers/discord/index.js";
 import { createGitHubRegistration } from "../../providers/github/index.js";
 import { createLinearRegistration } from "../../providers/linear/index.js";
+import { createMattermostRegistration } from "../../providers/mattermost/index.js";
+import type { MattermostConnectionClient } from "../../providers/mattermost/client.js";
+import { createMemoryMattermostBot } from "../../triggers/mattermost/memory-bot.js";
 import { createSlackRegistration } from "../../providers/slack/index.js";
 import { createSlackSocketInstallationVerifier } from "../../providers/slack/installation.js";
 import { startSlackSocketFixture } from "../../test-utils/slack-socket-fixture.js";
@@ -54,6 +57,10 @@ export const FIXTURE_APP_CREDENTIALS = {
     clientId: "browser-linear-client",
     clientSecret: "browser-linear-client-secret",
     webhookSecret: "browser-linear-webhook-secret",
+  },
+  mattermost: {
+    serverUrl: "https://mattermost.example.com",
+    botToken: "browser-mattermost-bot-token",
   },
 } as const;
 
@@ -134,6 +141,11 @@ export const FIXTURE_APP_IDENTITIES: Readonly<Record<Provider, ProviderApplicati
   discord: { provider: "discord", id: "900", name: "Paseo" },
   slack: { provider: "slack", id: "browser-slack-app", name: "Paseo" },
   linear: { provider: "linear", id: "browser-linear-client", name: "Paseo" },
+  mattermost: {
+    provider: "mattermost",
+    id: "https://mattermost.example.com",
+    name: "paseobot",
+  },
 };
 
 /** The identity an environment-configured provider activates with at boot. */
@@ -209,6 +221,21 @@ export class BrowserProviderApplicationVerifier implements ProviderApplicationVe
             new ProviderVerificationError("credentialsRejected", 401, { subject: "clientSecret" }),
           )
         : Promise.resolve(FIXTURE_APP_IDENTITIES.discord);
+    }
+    if (configuration.provider === "mattermost") {
+      // Production checks the address before the token, because an unreachable server and a
+      // rejected token are different problems with different fixes. The fixture does the same.
+      const expected = FIXTURE_APP_CREDENTIALS.mattermost;
+      if (configuration.serverUrl !== expected.serverUrl) {
+        return Promise.reject(
+          new ProviderVerificationError("network", undefined, { subject: "serverUrl" }),
+        );
+      }
+      return configuration.botToken === expected.botToken
+        ? Promise.resolve(FIXTURE_APP_IDENTITIES.mattermost)
+        : Promise.reject(
+            new ProviderVerificationError("credentialsRejected", 401, { subject: "botToken" }),
+          );
     }
     // Slack matches production: client credentials have no honest verification endpoint, so the
     // installation callback is the only thing that can accept them.
@@ -300,6 +327,14 @@ export function browserRegistrationFactory(fixtures: BrowserProviderApplicationF
         onVerifiedInstallation: input.onVerifiedLinearInstallation,
       });
     }
+    if (configuration.provider === "mattermost") {
+      return createMattermostRegistration({
+        ...shared,
+        configuration,
+        bot: createMemoryMattermostBot(),
+        connectionClient: browserMattermostConnections(configuration.serverUrl),
+      });
+    }
     return createSlackRegistration({
       ...shared,
       configuration,
@@ -344,6 +379,20 @@ class BrowserLinearConnections implements LinearConnectionClient {
   revoke(): Promise<void> {
     return Promise.resolve();
   }
+}
+
+/**
+ * Mattermost has no OAuth round trip, so connecting is just "which teams is the bot in?". The
+ * fixture answers with one team, which is enough for the Apps page to reach "connected".
+ */
+function browserMattermostConnections(serverUrl: string): MattermostConnectionClient {
+  const origin = new URL(serverUrl).origin;
+  return {
+    self: () => Promise.resolve({ id: "bot-user", username: "paseobot" }),
+    botTeams: () =>
+      Promise.resolve([{ teamId: "T-ACME", teamName: "acme", teamDisplayName: "Acme Inc" }]),
+    serverOrigin: () => origin,
+  };
 }
 
 class BrowserSlackConnections implements SlackConnectionClient {

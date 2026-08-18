@@ -9,6 +9,7 @@ const exampleFiles = [
   ".paseo/hub.yml",
   ".paseo/workflows/discord.yml",
   ".paseo/workflows/github.yml",
+  ".paseo/workflows/mattermost.yml",
   ".paseo/workflows/slack.yml",
   ".paseo/workflows/partials/classifier.md",
   ".paseo/workflows/partials/github-progress.md",
@@ -30,7 +31,7 @@ describe("public Hub examples", () => {
 
     assert.deepEqual(
       bundle.configuration.triggers.map(({ name }) => name),
-      ["discord-mention", "github-issue-comment", "slack-mention"],
+      ["discord-mention", "github-issue-comment", "mattermost-mention", "slack-mention"],
     );
     for (const trigger of bundle.configuration.triggers) {
       assert.deepEqual(

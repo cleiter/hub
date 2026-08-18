@@ -933,6 +933,7 @@ async function resolution(
     discord: discord === undefined ? [] : [discord],
     slack: [],
     linear: [],
+    mattermost: [],
   });
   assert(status !== null && typeof status === "object" && "status" in status);
   if (status.status === "suspended") return { status: "suspended" as const };
