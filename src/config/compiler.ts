@@ -97,6 +97,8 @@ const AuthoredTriggerFilterSchema = z
     exclude_labels: z.array(z.string().min(1)).min(1).optional(),
     /** Linear user IDs which may be assigned to the issue. */
     assignees: z.array(z.string().min(1)).min(1).optional(),
+    /** A Mattermost team, named by its Hub connection slug. */
+    team: z.string().min(1).optional(),
     channels: z.array(z.string().min(1)).optional(),
     from_users: z.array(z.string().min(1)).optional(),
     inputs: z.record(z.string(), InputValueSchema).optional(),

@@ -12,6 +12,9 @@ PASEO_HUB_APP_URL = 'https://your-paseo-hub.fly.dev'
 PASEO_HUB_TRUSTED_CLIENT_IP_HEADER = 'fly-client-ip'
 PASEO_REGISTRATION_MODE = 'invite_only'
 PASEO_ORGANIZATION_CREATION = 'disabled'
+# Your own Mattermost server's address. Only the bot token is a secret, so the address
+# belongs here rather than in `fly secrets`.
+# MATTERMOST_URL = 'https://mattermost.example.com'
 # Hub generates and durably stores its authentication secret on first start.
 # Advanced deployments may override it with the PASEO_HUB_AUTH_SECRET app secret.
 

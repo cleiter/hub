@@ -658,11 +658,110 @@ export const LINEAR_GUIDE: ProviderGuide = {
   receivesEvents: true,
 };
 
+export const MATTERMOST_GUIDE: ProviderGuide = {
+  provider: "mattermost",
+  name: "Mattermost",
+  summary: "Reads mentions in your channels and replies in the thread.",
+  // Every other provider points at a vendor developer portal. Mattermost is self-hosted, so the
+  // portal is the operator's own System Console.
+  portal: { label: "Open your Mattermost System Console", href: "https://docs.mattermost.com/" },
+  formTitle: "Paste from Mattermost",
+  summaryLabels: { identity: "Server", connections: "Teams" },
+  environmentVariables: ["MATTERMOST_URL", "MATTERMOST_BOT_TOKEN"],
+  groups: [
+    {
+      id: "application",
+      steps: [
+        {
+          segments: [
+            { kind: "text", value: "In your Mattermost " },
+            { kind: "term", value: "System Console → Integrations → Integration Management" },
+            { kind: "text", value: ", turn on " },
+            { kind: "term", value: "Enable Bot Account Creation" },
+            {
+              kind: "text",
+              value:
+                ". It is off on a stock server, and bot creation fails with a 403 until it is on.",
+            },
+          ],
+        },
+        {
+          segments: [
+            { kind: "text", value: "Go to " },
+            { kind: "term", value: "Integrations → Bot Accounts → Add Bot Account" },
+            { kind: "text", value: ", create the bot, and copy the access token it shows once." },
+          ],
+        },
+        {
+          segments: [
+            { kind: "text", value: "Copy your server address, for example " },
+            { kind: "term", value: "https://chat.example.com" },
+            { kind: "text", value: ". A subpath such as /mattermost is supported." },
+          ],
+        },
+        {
+          segments: [
+            { kind: "text", value: "Add the bot to each " },
+            { kind: "term", value: "team" },
+            { kind: "text", value: " and then to every " },
+            { kind: "term", value: "channel" },
+            {
+              kind: "text",
+              value:
+                " it should watch. A channel the bot was never added to produces nothing at all — the mention simply never arrives.",
+            },
+          ],
+        },
+        {
+          segments: [
+            {
+              kind: "text",
+              value:
+                "Every organization here shares this one token: Mattermost issues one token per bot account, not one per connection. Teams are kept apart by Paseo, and disconnecting a team revokes nothing in Mattermost — delete the bot's token to do that. Unrelated organizations should each get their own bot.",
+            },
+          ],
+        },
+      ],
+      fields: [
+        {
+          name: "serverUrl",
+          label: "Server address",
+          kind: "text",
+          description: "The address you open Mattermost at.",
+          identifier: "serverUrl",
+          required: "Enter the Mattermost server address.",
+        },
+        {
+          name: "botToken",
+          label: "Bot access token",
+          kind: "secret",
+          description: "From Integrations → Bot Accounts.",
+          required: "Enter the bot access token.",
+        },
+      ],
+    },
+  ],
+  // Hub connects out over a websocket, so Mattermost never needs to reach Hub.
+  urls: [],
+  savingContinues: false,
+  actions: {
+    save: "Verify and save",
+    savePending: "Verifying…",
+    connect: "Connect a team",
+    connectAgain: "Connect another team",
+  },
+  verifiedMessage: "Mattermost accepted this bot token.",
+  requiresHttps: false,
+  httpsRequirement: (origin) => `Mattermost is set up the same way at ${origin}.`,
+  receivesEvents: false,
+};
+
 export const PROVIDER_GUIDES: readonly ProviderGuide[] = [
   GITHUB_GUIDE,
   SLACK_GUIDE,
   DISCORD_GUIDE,
   LINEAR_GUIDE,
+  MATTERMOST_GUIDE,
 ];
 
 export function guideFor(provider: Provider): ProviderGuide {

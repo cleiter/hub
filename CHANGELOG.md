@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Mattermost as a provider, including self-hosted servers: an operator pastes a server address and a bot account token, connects the teams the bot belongs to, and workflows trigger on `mattermost.mention` with `mattermost.reply` outputs. Hub connects out over a websocket, so no inbound HTTPS route is needed. The bot must be added to each channel it should watch, direct messages are not supported, and the bot credential is shared by every organization on the instance. Connecting binds the teams the bot belongs to that no organization has claimed yet; Hub asks for no proof of Mattermost team ownership, and a team another organization already connected is skipped rather than taken.
+
 ## 0.8.0 - 2026-08-25
 
 ### Added

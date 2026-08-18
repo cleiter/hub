@@ -27,6 +27,7 @@ import type {
   BindDiscordConnectionInput,
   BindGitHubConnectionInput,
   BindLinearConnectionInput,
+  BindMattermostConnectionInput,
   BindSlackConnectionInput,
   CompleteLinearProviderApplicationInput,
   CompleteSlackProviderApplicationInput,
@@ -41,6 +42,7 @@ import type {
   AcceptDiscordEventInput,
   AcceptGitHubEventInput,
   AcceptLinearEventInput,
+  AcceptMattermostEventInput,
   AcceptSlackEventInput,
   DurableProviderEvent,
   GitHubLifecycleReceiptClaim,
@@ -57,6 +59,7 @@ import type {
   ProjectRecord,
   TenantRouteAccess,
   GitHubConnectionRecord,
+  MattermostConnectionRecord,
   GitHubConfigurationTarget,
   DiscordConnectionRecord,
   SlackConnectionRecord,
@@ -206,6 +209,7 @@ class MemoryDatabase implements Database {
   private readonly discordConnections = new Map<string, DiscordConnectionRecord>();
   private readonly slackConnections = new Map<string, SlackConnectionRecord>();
   private readonly linearConnections = new Map<string, LinearConnectionRecord>();
+  private readonly mattermostConnections = new Map<string, MattermostConnectionRecord>();
   private readonly organizationIds: Set<string>;
 
   constructor(private readonly options: MemoryDatabaseOptions = {}) {
@@ -1018,6 +1022,7 @@ class MemoryDatabase implements Database {
     const binding = await this.findGitHubConnection(input.installationId);
     const reason = githubDropReason(input, binding);
     return this.acceptMemoryEvent(
+      "github",
       input,
       binding?.organizationId,
       binding?.id,
@@ -1030,6 +1035,7 @@ class MemoryDatabase implements Database {
     const binding = await this.findDiscordConnection(input.guildId);
     const reason = discordDropReason(input, binding);
     return this.acceptMemoryEvent(
+      "discord",
       input,
       binding?.organizationId,
       binding?.id,
@@ -1042,6 +1048,20 @@ class MemoryDatabase implements Database {
     const binding = await this.findSlackConnection(input.teamId);
     const reason = slackDropReason(input, binding);
     return this.acceptMemoryEvent(
+      "slack",
+      input,
+      binding?.organizationId,
+      binding?.id,
+      input.teamId,
+      reason,
+    );
+  }
+
+  async acceptMattermostEvent(input: AcceptMattermostEventInput): Promise<ProviderEventAcceptance> {
+    const binding = await this.findMattermostConnection(input.teamId);
+    const reason = input.dropReason ?? (binding === undefined ? "mattermost_unbound" : undefined);
+    return this.acceptMemoryEvent(
+      "mattermost",
       input,
       binding?.organizationId,
       binding?.id,
@@ -1054,6 +1074,7 @@ class MemoryDatabase implements Database {
     const binding = await this.findLinearConnection(input.linearOrganizationId);
     const reason = linearDropReason(input, binding);
     return this.acceptMemoryEvent(
+      "linear",
       input,
       binding?.organizationId,
       binding?.id,
@@ -2824,6 +2845,9 @@ class MemoryDatabase implements Database {
       linear: Array.from(this.linearConnections.values()).filter(
         (connection) => connection.organizationId === organizationId,
       ),
+      mattermost: Array.from(this.mattermostConnections.values()).filter(
+        (connection) => connection.organizationId === organizationId,
+      ),
     };
   }
 
@@ -2983,6 +3007,10 @@ class MemoryDatabase implements Database {
     return connectionPersistenceUnavailable();
   }
 
+  bindMattermostConnection(_input: BindMattermostConnectionInput): Promise<void> {
+    return connectionPersistenceUnavailable();
+  }
+
   completeSlackProviderApplication(_input: CompleteSlackProviderApplicationInput): Promise<void> {
     return connectionPersistenceUnavailable();
   }
@@ -3064,6 +3092,18 @@ class MemoryDatabase implements Database {
     return Promise.resolve(connection?.organizationId === organizationId ? connection : undefined);
   }
 
+  findMattermostConnection(teamId: string): Promise<MattermostConnectionRecord | undefined> {
+    return Promise.resolve(this.mattermostConnections.get(teamId));
+  }
+
+  findMattermostConnectionForOrganization(
+    organizationId: string,
+    teamId: string,
+  ): Promise<MattermostConnectionRecord | undefined> {
+    const connection = this.mattermostConnections.get(teamId);
+    return Promise.resolve(connection?.organizationId === organizationId ? connection : undefined);
+  }
+
   removeDiscordConnection(): Promise<void> {
     return Promise.resolve();
   }
@@ -3077,11 +3117,13 @@ class MemoryDatabase implements Database {
   }
 
   private async acceptMemoryEvent(
+    provider: "github" | "discord" | "slack" | "linear" | "mattermost",
     input:
       | AcceptGitHubEventInput
       | AcceptDiscordEventInput
       | AcceptSlackEventInput
-      | AcceptLinearEventInput,
+      | AcceptLinearEventInput
+      | AcceptMattermostEventInput,
     organizationId: string | undefined,
     connectionId: string | undefined,
     resourceId: string | null,
@@ -3121,7 +3163,7 @@ class MemoryDatabase implements Database {
     }
     const receipt = this.insertProviderEventReceipt({
       organizationId,
-      provider: providerForInput(input),
+      provider,
       connectionId,
       resourceId,
       input,
@@ -3134,7 +3176,6 @@ class MemoryDatabase implements Database {
         reason,
       };
     }
-    const provider = providerForInput(input);
     const routes = Array.from(this.projectTriggerRoutes.entries()).flatMap(
       ([projectId, candidates]) => {
         const project = this.projects.get(projectId);
@@ -3270,18 +3311,6 @@ function emptyHubActionAcknowledgements(): AgentExecutionHubAcknowledgements {
 
 function connectionPersistenceUnavailable(): never {
   throw new Error("connection persistence requires PostgreSQL");
-}
-
-function providerForInput(
-  input:
-    | AcceptGitHubEventInput
-    | AcceptDiscordEventInput
-    | AcceptSlackEventInput
-    | AcceptLinearEventInput,
-): "github" | "discord" | "slack" | "linear" {
-  if ("installationId" in input) return "github";
-  if ("guildId" in input) return "discord";
-  return "teamId" in input ? "slack" : "linear";
 }
 
 function githubDropReason(

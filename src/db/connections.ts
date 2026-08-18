@@ -2,6 +2,7 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Locks } from "./runtime/locks/index.js";
 import type { DatabaseRuntime, DrizzleHandle, TransactionHandle } from "./runtime/index.js";
 import { slugify } from "../slug.js";
+import { assertNever } from "../exhaustive.js";
 import {
   ConnectionAccessDeniedError,
   ConnectionAttemptUnavailableError,
@@ -13,6 +14,7 @@ import type {
   BindDiscordConnectionInput,
   BindGitHubConnectionInput,
   BindLinearConnectionInput,
+  BindMattermostConnectionInput,
   BindSlackConnectionInput,
   CompleteLinearProviderApplicationInput,
   CompleteSlackProviderApplicationInput,
@@ -25,6 +27,7 @@ import type {
   GitHubConnectionRecord,
   LinearConnectionRecord,
   LinearConnectionRefreshOperation,
+  MattermostConnectionRecord,
   ReadConnectionAttemptInput,
   SlackConnectionRecord,
   StartConnectionAttemptInput,
@@ -222,6 +225,31 @@ export class ConnectionRepository {
 
   async bindSlack(input: BindSlackConnectionInput): Promise<void> {
     await this.bindSlackTransition(input);
+  }
+
+  async bindMattermost(input: BindMattermostConnectionInput): Promise<void> {
+    await this.bindExclusive(input, "mattermost", input.teamId, async (transaction, attempt) => {
+      const [_connection] = await transaction
+        .insert(schema.mattermostConnections)
+        .values({
+          organizationId: attempt.organizationId,
+          teamId: input.teamId,
+          providerApplicationId: input.providerApplicationId,
+          teamName: input.teamName,
+          teamDisplayName: input.teamDisplayName,
+          serverUrl: input.serverUrl,
+          botUserId: input.botUserId,
+          botUsername: input.botUsername,
+          slug: await uniqueConnectionSlug(
+            transaction,
+            attempt.organizationId,
+            "mattermost",
+            input.teamDisplayName,
+          ),
+          connectedByUserId: attempt.userId,
+        })
+        .returning({ id: schema.mattermostConnections.id });
+    });
   }
 
   async completeSlackProviderApplication(
@@ -510,8 +538,8 @@ export class ConnectionRepository {
   }
 
   private async bindExclusive(
-    input: BindDiscordConnectionInput,
-    provider: "discord" | "slack",
+    input: ReadConnectionAttemptInput & { providerApplicationId: string },
+    provider: "discord" | "slack" | "mattermost",
     externalId: string,
     insert: (transaction: HubTransaction, attempt: AttemptRow) => Promise<void>,
   ): Promise<void> {
@@ -523,18 +551,7 @@ export class ConnectionRepository {
       await lockProviderApplication(this.locks, runtimeTransaction, provider);
       await requireCurrentAttempt(transaction, attempt, input.providerApplicationId);
       await lockExternal(this.locks, runtimeTransaction, provider, externalId);
-      const conflict =
-        provider === "discord"
-          ? await transaction
-              .select({ id: schema.discordConnections.id })
-              .from(schema.discordConnections)
-              .where(eq(schema.discordConnections.guildId, externalId))
-              .limit(1)
-          : await transaction
-              .select({ id: schema.slackConnections.id })
-              .from(schema.slackConnections)
-              .where(eq(schema.slackConnections.teamId, externalId))
-              .limit(1);
+      const conflict = await conflictingConnection(transaction, provider, externalId);
       if (conflict.length > 0) throw new ConnectionConflictError();
       await insert(transaction, attempt);
       await consumeLockedAttempt(transaction, attempt.id);
@@ -642,6 +659,28 @@ export class ConnectionRepository {
           accessToken: connection.accessToken,
         } as const;
       }
+      if (provider === "mattermost") {
+        const [connection] = await transaction
+          .select({ teamId: schema.mattermostConnections.teamId })
+          .from(schema.mattermostConnections)
+          .where(
+            and(
+              eq(schema.mattermostConnections.id, connectionId),
+              eq(schema.mattermostConnections.organizationId, access.organizationId),
+            ),
+          )
+          .for("update");
+        if (connection === undefined) throw new ConnectionAccessDeniedError();
+        await transaction
+          .delete(schema.projectTriggerRoutes)
+          .where(eq(schema.projectTriggerRoutes.connectionId, connectionId));
+        await transaction
+          .delete(schema.mattermostConnections)
+          .where(eq(schema.mattermostConnections.id, connectionId));
+        // Disconnecting revokes nothing at the server: the bot token is instance-global, so
+        // removing the row is the whole of the boundary.
+        return { provider, teamId: connection.teamId } as const;
+      }
       const [connection] = await transaction
         .select({
           teamId: schema.slackConnections.teamId,
@@ -746,6 +785,32 @@ export class ConnectionRepository {
       )
       .limit(1);
     return row === undefined ? undefined : linearConnection(row);
+  }
+
+  async findMattermost(teamId: string): Promise<MattermostConnectionRecord | undefined> {
+    const [row] = await this.database
+      .select()
+      .from(schema.mattermostConnections)
+      .where(eq(schema.mattermostConnections.teamId, teamId))
+      .limit(1);
+    return row === undefined ? undefined : mattermostConnection(row);
+  }
+
+  async findMattermostForOrganization(
+    organizationId: string,
+    teamId: string,
+  ): Promise<MattermostConnectionRecord | undefined> {
+    const [row] = await this.database
+      .select()
+      .from(schema.mattermostConnections)
+      .where(
+        and(
+          eq(schema.mattermostConnections.organizationId, organizationId),
+          eq(schema.mattermostConnections.teamId, teamId),
+        ),
+      )
+      .limit(1);
+    return row === undefined ? undefined : mattermostConnection(row);
   }
 
   async removeDiscord(guildId: string): Promise<void> {
@@ -1052,9 +1117,20 @@ async function consumeLockedAttempt(transaction: HubTransaction, attemptId: stri
 }
 
 function initialConnectionAttemptPhase(provider: ConnectionProvider): ConnectionAttemptPhase {
-  if (provider === "github") return "github_setup";
-  if (provider === "discord") return "discord_authorization";
-  return provider === "slack" ? "slack_authorization" : "linear_authorization";
+  switch (provider) {
+    case "github":
+      return "github_setup";
+    case "discord":
+      return "discord_authorization";
+    case "slack":
+      return "slack_authorization";
+    case "linear":
+      return "linear_authorization";
+    case "mattermost":
+      return "mattermost_authorization";
+    default:
+      return assertNever(provider, "initialConnectionAttemptPhase");
+  }
 }
 
 function toAttempt(row: AttemptRow): ConnectionAttemptRecord {
@@ -1106,6 +1182,22 @@ function discordConnection(
     providerApplicationId: row.providerApplicationId,
   };
 }
+function mattermostConnection(
+  row: typeof schema.mattermostConnections.$inferSelect,
+): MattermostConnectionRecord {
+  return {
+    id: row.id,
+    organizationId: row.organizationId,
+    slug: row.slug,
+    teamId: row.teamId,
+    teamName: row.teamName,
+    teamDisplayName: row.teamDisplayName,
+    serverUrl: row.serverUrl,
+    botUserId: row.botUserId,
+    botUsername: row.botUsername,
+    providerApplicationId: row.providerApplicationId,
+  };
+}
 function slackConnection(row: typeof schema.slackConnections.$inferSelect): SlackConnectionRecord {
   return {
     id: row.id,
@@ -1137,6 +1229,39 @@ function linearConnection(
   };
 }
 
+/**
+ * Exhaustive on purpose: this decides which table a would-be connection is checked against, so a
+ * fallthrough would let two organizations bind the same external resource.
+ */
+async function conflictingConnection(
+  transaction: HubTransaction,
+  provider: "discord" | "slack" | "mattermost",
+  externalId: string,
+): Promise<readonly { id: string }[]> {
+  switch (provider) {
+    case "discord":
+      return transaction
+        .select({ id: schema.discordConnections.id })
+        .from(schema.discordConnections)
+        .where(eq(schema.discordConnections.guildId, externalId))
+        .limit(1);
+    case "slack":
+      return transaction
+        .select({ id: schema.slackConnections.id })
+        .from(schema.slackConnections)
+        .where(eq(schema.slackConnections.teamId, externalId))
+        .limit(1);
+    case "mattermost":
+      return transaction
+        .select({ id: schema.mattermostConnections.id })
+        .from(schema.mattermostConnections)
+        .where(eq(schema.mattermostConnections.teamId, externalId))
+        .limit(1);
+    default:
+      return assertNever(provider, "conflictingConnection");
+  }
+}
+
 async function uniqueConnectionSlug(
   transaction: HubTransaction,
   organizationId: string,
@@ -1153,6 +1278,8 @@ async function uniqueConnectionSlug(
       select slug from discord_connections where organization_id = ${organizationId}
       union all
       select slug from linear_connections where organization_id = ${organizationId}
+      union all
+      select slug from mattermost_connections where organization_id = ${organizationId}
     ) slugs
     where slug = ${base} or slug like ${`${base}-%`}
     order by slug

@@ -7,6 +7,7 @@ import type {
   AcceptDiscordEventInput,
   AcceptGitHubEventInput,
   AcceptLinearEventInput,
+  AcceptMattermostEventInput,
   AcceptSlackEventInput,
   GitHubLifecycleReceiptClaim,
   GitHubLifecycleReceiptClaimInput,
@@ -45,8 +46,12 @@ export class ProviderEventAcceptanceRepository {
     return this.acceptProvider("linear", input.linearOrganizationId, input.projectId, input);
   }
 
+  acceptMattermost(input: AcceptMattermostEventInput): Promise<ProviderEventAcceptance> {
+    return this.acceptProvider("mattermost", input.teamId, input.teamId, input);
+  }
+
   private async acceptProvider(
-    provider: "github" | "slack" | "discord" | "linear",
+    provider: "github" | "slack" | "discord" | "linear" | "mattermost",
     externalId: number | string,
     resourceId: number | string | undefined,
     input: ProviderEventEvidence,
@@ -434,11 +439,26 @@ function selectFirstRoutePerProject<Route extends { projectId: string }>(
   return [...selected.values()];
 }
 
+/**
+ * Which table answers "who owns this external resource". A wrong answer here binds an event to
+ * another provider's organization, so every provider is named explicitly.
+ */
 async function findConnection(
   transaction: HubTransaction,
-  provider: "github" | "slack" | "discord" | "linear",
+  provider: "github" | "slack" | "discord" | "linear" | "mattermost",
   externalId: number | string,
 ) {
+  if (provider === "mattermost") {
+    const [row] = await transaction
+      .select({
+        id: schema.mattermostConnections.id,
+        organizationId: schema.mattermostConnections.organizationId,
+      })
+      .from(schema.mattermostConnections)
+      .where(eq(schema.mattermostConnections.teamId, String(externalId)))
+      .limit(1);
+    return row;
+  }
   if (provider === "github") {
     const [row] = await transaction
       .select({
@@ -491,7 +511,7 @@ async function claimProviderReceipt(
   transaction: HubTransaction,
   input: {
     organizationId: string;
-    provider: "github" | "slack" | "discord" | "linear" | "manual";
+    provider: "github" | "slack" | "discord" | "linear" | "mattermost" | "manual";
     connectionId: string | null;
     resourceId: string | null;
     input: ProviderEventEvidence;

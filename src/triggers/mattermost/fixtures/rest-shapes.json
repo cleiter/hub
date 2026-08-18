@@ -1,0 +1,251 @@
+{
+  "_note": "Verbatim REST responses recorded from Mattermost 11.10.0. See README.md.",
+  "addReaction": {
+    "request": {
+      "body": {
+        "emoji_name": "eyes",
+        "post_id": "<post>",
+        "user_id": "<bot>"
+      },
+      "method": "POST",
+      "path": "/api/v4/reactions"
+    },
+    "response": {
+      "channel_id": "inxywfxq4fdc78fzp6x1diictr",
+      "create_at": 1786973409432,
+      "delete_at": 0,
+      "emoji_name": "eyes",
+      "post_id": "gya6fp1krpnzurby4ko68edsiw",
+      "remote_id": "",
+      "update_at": 1786973409432,
+      "user_id": "r8busjtmztnxdro8a1bam8j5fh"
+    },
+    "status": 200
+  },
+  "createBotWithDefaultConfig": {
+    "request": {
+      "method": "POST",
+      "path": "/api/v4/bots"
+    },
+    "response": {
+      "id": "api.bot.create_disabled",
+      "message": "Bot creation has been disabled.",
+      "status_code": 403
+    },
+    "status": 403
+  },
+  "fileDownload": {
+    "body": "hello from paseo fixture",
+    "contentType": "text/plain; charset=utf-8",
+    "request": {
+      "method": "GET",
+      "path": "/api/v4/files/{file_id}"
+    },
+    "status": 200
+  },
+  "fileInfo": {
+    "request": {
+      "method": "GET",
+      "path": "/api/v4/files/{file_id}/info"
+    },
+    "response": {
+      "archived": false,
+      "channel_id": "inxywfxq4fdc78fzp6x1diictr",
+      "create_at": 1786973485898,
+      "delete_at": 0,
+      "extension": "txt",
+      "id": "5h3gef9h3tdxpgu3hckypfzbhe",
+      "mime_type": "text/plain; charset=utf-8",
+      "mini_preview": null,
+      "name": "notes.txt",
+      "post_id": "tp8z74xkcpnz8b5kpsehmw3wye",
+      "remote_id": "",
+      "size": 24,
+      "update_at": 1786973485898,
+      "user_id": "jnrisb1fmfbafr3dmu8nufts9r"
+    },
+    "status": 200
+  },
+  "postToChannelBotIsNotIn": {
+    "request": {
+      "method": "POST",
+      "path": "/api/v4/posts"
+    },
+    "response": {
+      "detailed_error": "",
+      "id": "api.context.permissions.app_error",
+      "message": "You do not have the appropriate permissions.",
+      "request_id": "mdpym8dx6fnq3mumu3tkspruzc",
+      "status_code": 403
+    },
+    "status": 403
+  },
+  "removeReaction": {
+    "request": {
+      "method": "DELETE",
+      "path": "/api/v4/users/{user_id}/posts/{post_id}/reactions/{emoji_name}"
+    },
+    "response": {
+      "status": "OK"
+    },
+    "status": 200
+  },
+  "thread": {
+    "request": {
+      "method": "GET",
+      "path": "/api/v4/posts/{post_id}/thread"
+    },
+    "response": {
+      "first_inaccessible_post_time": 0,
+      "has_next": false,
+      "next_post_id": "",
+      "order": ["gya6fp1krpnzurby4ko68edsiw", "k5tnqbejtj8b7rkdypomrnh6jw"],
+      "posts": {
+        "gya6fp1krpnzurby4ko68edsiw": {
+          "channel_id": "inxywfxq4fdc78fzp6x1diictr",
+          "create_at": 1786973407245,
+          "delete_at": 0,
+          "edit_at": 0,
+          "file_ids": [],
+          "hashtags": "",
+          "id": "gya6fp1krpnzurby4ko68edsiw",
+          "is_pinned": false,
+          "last_reply_at": 0,
+          "message": "@paseobot please review the deploy",
+          "metadata": {},
+          "original_id": "",
+          "participants": null,
+          "pending_post_id": "",
+          "props": {},
+          "remote_id": "",
+          "reply_count": 1,
+          "root_id": "",
+          "type": "",
+          "update_at": 1786973409446,
+          "user_id": "jnrisb1fmfbafr3dmu8nufts9r"
+        },
+        "k5tnqbejtj8b7rkdypomrnh6jw": {
+          "channel_id": "inxywfxq4fdc78fzp6x1diictr",
+          "create_at": 1786973407707,
+          "delete_at": 0,
+          "edit_at": 0,
+          "file_ids": [],
+          "hashtags": "",
+          "id": "k5tnqbejtj8b7rkdypomrnh6jw",
+          "is_pinned": false,
+          "last_reply_at": 0,
+          "message": "@paseobot follow up in thread",
+          "metadata": {},
+          "original_id": "",
+          "participants": null,
+          "pending_post_id": "",
+          "props": {},
+          "remote_id": "",
+          "reply_count": 1,
+          "root_id": "gya6fp1krpnzurby4ko68edsiw",
+          "type": "",
+          "update_at": 1786973407707,
+          "user_id": "jnrisb1fmfbafr3dmu8nufts9r"
+        }
+      },
+      "prev_post_id": ""
+    },
+    "status": 200
+  },
+  "usersMe": {
+    "request": {
+      "method": "GET",
+      "path": "/api/v4/users/me"
+    },
+    "response": {
+      "auth_service": "",
+      "bot_description": "Paseo Hub agent bot",
+      "create_at": 1786973362812,
+      "delete_at": 0,
+      "disable_welcome_email": false,
+      "email": "paseobot@localhost",
+      "first_name": "Paseo",
+      "id": "r8busjtmztnxdro8a1bam8j5fh",
+      "is_bot": true,
+      "last_name": "",
+      "last_password_update": 1786973362812,
+      "locale": "en",
+      "nickname": "",
+      "notify_props": {
+        "channel": "true",
+        "channel_mention_auto_follow_threads": "true",
+        "comments": "never",
+        "desktop": "mention",
+        "desktop_sound": "true",
+        "desktop_threads": "all",
+        "email": "true",
+        "email_threads": "all",
+        "first_name": "false",
+        "mention_keys": "",
+        "push": "mention",
+        "push_status": "online",
+        "push_threads": "all"
+      },
+      "position": "",
+      "roles": "system_user",
+      "timezone": {
+        "automaticTimezone": "",
+        "manualTimezone": "",
+        "useAutomaticTimezone": "true"
+      },
+      "update_at": 1786973379176,
+      "username": "paseobot"
+    },
+    "status": 200
+  },
+  "usersMeTeams": {
+    "request": {
+      "method": "GET",
+      "path": "/api/v4/users/me/teams"
+    },
+    "response": [
+      {
+        "allow_open_invite": false,
+        "allowed_domains": "",
+        "cloud_limits_archived": false,
+        "company_name": "",
+        "create_at": 1786973379034,
+        "delete_at": 0,
+        "description": "",
+        "display_name": "Engineering",
+        "email": "admin@example.com",
+        "group_constrained": null,
+        "id": "n647fxr7atdepji7rcpw4qtdia",
+        "invite_id": "m3qksw8xftdnxqs7rbrkzce1be",
+        "name": "engineering",
+        "policy_enforced": false,
+        "policy_id": null,
+        "policy_is_active": false,
+        "scheme_id": null,
+        "type": "O",
+        "update_at": 1786973379034
+      }
+    ],
+    "status": 200
+  },
+  "usersMeTeamsMembers": {
+    "_why": "team-admin role lives HERE, not on /users/me/teams",
+    "request": {
+      "method": "GET",
+      "path": "/api/v4/users/me/teams/members"
+    },
+    "response": [
+      {
+        "delete_at": 0,
+        "explicit_roles": "",
+        "roles": "team_user team_admin",
+        "scheme_admin": true,
+        "scheme_guest": false,
+        "scheme_user": true,
+        "team_id": "n647fxr7atdepji7rcpw4qtdia",
+        "user_id": "jnrisb1fmfbafr3dmu8nufts9r"
+      }
+    ],
+    "status": 200
+  }
+}

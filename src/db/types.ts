@@ -19,7 +19,7 @@ export type WorkflowDeadlineKind = "step_hard" | "step_idle" | "whole_run";
 export interface ProviderEventReceiptRecord {
   id: string;
   organizationId: string;
-  provider: "github" | "slack" | "discord" | "linear" | "manual";
+  provider: "github" | "slack" | "discord" | "linear" | "mattermost" | "manual";
   connectionId: string | null;
   resourceId: string | null;
   deliveryId: string;
@@ -55,7 +55,7 @@ export interface ProviderEventRouteSnapshot {
   resourceId: string | null;
 }
 
-export type AttachmentProvider = "slack" | "discord";
+export type AttachmentProvider = "slack" | "discord" | "mattermost";
 
 export interface AttachmentRecord {
   id: string;
@@ -265,6 +265,7 @@ export interface OrganizationConnectionUsage {
   discord: DiscordConnectionRecord[];
   slack: SlackConnectionRecord[];
   linear: LinearConnectionRecord[];
+  mattermost: MattermostConnectionRecord[];
 }
 
 export interface GitHubRepositoryRecord {
@@ -372,7 +373,8 @@ export type ConnectionAttemptPhase =
   | "github_user_authorization"
   | "discord_authorization"
   | "slack_authorization"
-  | "linear_authorization";
+  | "linear_authorization"
+  | "mattermost_authorization";
 
 export interface ConnectionAccountAccess {
   sessionId: string;
@@ -460,6 +462,24 @@ export interface LinearConnectionRecord {
   scopes: string[];
 }
 
+/**
+ * One Mattermost team. There is no per-connection credential: the bot token belongs to the
+ * provider application, so `serverUrl` here is a record of which server the team came from, not
+ * a second credential scope.
+ */
+export interface MattermostConnectionRecord {
+  id: string;
+  organizationId: string;
+  slug: string;
+  teamId: string;
+  teamName: string;
+  teamDisplayName: string;
+  serverUrl: string;
+  botUserId: string;
+  botUsername: string;
+  providerApplicationId: string | null;
+}
+
 export interface StartConnectionAttemptInput {
   provider: ConnectionProvider;
   stateVerifier: string;
@@ -507,6 +527,16 @@ export interface BindSlackConnectionInput extends ReadConnectionAttemptInput {
   botUserId: string;
   botAccessToken: string;
   scopes: string[];
+}
+
+export interface BindMattermostConnectionInput extends ReadConnectionAttemptInput {
+  providerApplicationId: string;
+  teamId: string;
+  teamName: string;
+  teamDisplayName: string;
+  serverUrl: string;
+  botUserId: string;
+  botUsername: string;
 }
 
 export interface CompleteSlackProviderApplicationInput extends BindSlackConnectionInput {
@@ -565,7 +595,8 @@ export type DisconnectConnectionResult =
       provider: "linear";
       linearOrganizationId: string | undefined;
       accessToken: string | undefined;
-    };
+    }
+  | { provider: "mattermost"; teamId: string | undefined };
 
 export type GitHubLifecycleIdentity = Omit<
   GitHubConnectionRecord,
@@ -640,6 +671,10 @@ export interface AcceptSlackEventInput extends ProviderEventEvidence {
 export interface AcceptLinearEventInput extends ProviderEventEvidence {
   linearOrganizationId: string;
   projectId?: string;
+}
+
+export interface AcceptMattermostEventInput extends ProviderEventEvidence {
+  teamId: string;
 }
 
 export interface PersistManualEventInput extends InsertProviderEventInput {
@@ -1243,6 +1278,7 @@ export interface Database {
   acceptDiscordEvent(input: AcceptDiscordEventInput): Promise<ProviderEventAcceptance>;
   acceptSlackEvent(input: AcceptSlackEventInput): Promise<ProviderEventAcceptance>;
   acceptLinearEvent(input: AcceptLinearEventInput): Promise<ProviderEventAcceptance>;
+  acceptMattermostEvent(input: AcceptMattermostEventInput): Promise<ProviderEventAcceptance>;
   persistManualEvent(input: PersistManualEventInput): Promise<ManualEventPersistence>;
   claimGitHubLifecycleReceipt(
     input: GitHubLifecycleReceiptClaimInput,
@@ -1544,6 +1580,7 @@ export interface Database {
   bindGitHubConnection(input: BindGitHubConnectionInput): Promise<void>;
   bindDiscordConnection(input: BindDiscordConnectionInput): Promise<void>;
   bindSlackConnection(input: BindSlackConnectionInput): Promise<void>;
+  bindMattermostConnection(input: BindMattermostConnectionInput): Promise<void>;
   completeSlackProviderApplication(input: CompleteSlackProviderApplicationInput): Promise<void>;
   bindLinearConnection(input: BindLinearConnectionInput): Promise<void>;
   completeLinearProviderApplication(input: CompleteLinearProviderApplicationInput): Promise<void>;
@@ -1578,6 +1615,11 @@ export interface Database {
     organizationId: string,
     guildId: string,
   ): Promise<DiscordConnectionRecord | undefined>;
+  findMattermostConnection(teamId: string): Promise<MattermostConnectionRecord | undefined>;
+  findMattermostConnectionForOrganization(
+    organizationId: string,
+    teamId: string,
+  ): Promise<MattermostConnectionRecord | undefined>;
   removeDiscordConnection(guildId: string): Promise<void>;
   close(): Promise<void>;
 }

@@ -9,11 +9,13 @@ export async function readProviderApplicationEnvironment(
   const slack = slackEnvironment(environment);
   const discord = discordEnvironment(environment);
   const linear = linearEnvironment(environment);
+  const mattermost = mattermostEnvironment(environment);
   return {
     ...(github === undefined ? {} : { github }),
     ...(slack === undefined ? {} : { slack }),
     ...(discord === undefined ? {} : { discord }),
     ...(linear === undefined ? {} : { linear }),
+    ...(mattermost === undefined ? {} : { mattermost }),
   };
 }
 
@@ -131,6 +133,16 @@ function linearEnvironment(
     );
   }
   return { provider: "linear", clientId, clientSecret, webhookSecret };
+}
+
+function mattermostEnvironment(
+  environment: Record<string, string | undefined>,
+): ProviderApplicationConfiguration | undefined {
+  const serverUrl = nonEmpty(environment["MATTERMOST_URL"]);
+  const botToken = nonEmpty(environment["MATTERMOST_BOT_TOKEN"]);
+  return serverUrl === undefined || botToken === undefined
+    ? undefined
+    : { provider: "mattermost", serverUrl, botToken };
 }
 
 function nonEmpty(value: string | undefined): string | undefined {

@@ -56,6 +56,7 @@ import type {
   BindDiscordConnectionInput,
   BindGitHubConnectionInput,
   BindLinearConnectionInput,
+  BindMattermostConnectionInput,
   BindSlackConnectionInput,
   CompleteLinearProviderApplicationInput,
   CompleteSlackProviderApplicationInput,
@@ -66,6 +67,7 @@ import type {
   AcceptDiscordEventInput,
   AcceptGitHubEventInput,
   AcceptLinearEventInput,
+  AcceptMattermostEventInput,
   AcceptSlackEventInput,
   UpdateLinearConnectionTokensInput,
   LinearConnectionRefreshOperation,
@@ -157,6 +159,10 @@ class PgDatabase implements Database {
 
   acceptLinearEvent(input: AcceptLinearEventInput) {
     return this.triggerAcceptance.acceptLinear(input);
+  }
+
+  acceptMattermostEvent(input: AcceptMattermostEventInput) {
+    return this.triggerAcceptance.acceptMattermost(input);
   }
 
   persistManualEvent(input: PersistManualEventInput) {
@@ -3808,7 +3814,7 @@ class PgDatabase implements Database {
        order by connection.account_login, connection.id`,
       [organizationId],
     );
-    const [discord, slack, linear] = await Promise.all([
+    const [discord, slack, linear, mattermost] = await Promise.all([
       query<{
         id: string;
         organization_id: string;
@@ -3862,6 +3868,25 @@ class PgDatabase implements Database {
          order by linear_organization_name, id`,
         [organizationId],
       ),
+      query<{
+        id: string;
+        organization_id: string;
+        slug: string;
+        team_id: string;
+        team_name: string;
+        team_display_name: string;
+        server_url: string;
+        bot_user_id: string;
+        bot_username: string;
+        provider_application_id: string | null;
+      }>(
+        this.pool,
+        `select id, organization_id, slug, team_id, team_name, team_display_name, server_url,
+                bot_user_id, bot_username, provider_application_id
+         from mattermost_connections where organization_id = $1
+         order by team_display_name, id`,
+        [organizationId],
+      ),
     ]);
     return {
       github: github.rows.map((row) => ({
@@ -3905,6 +3930,18 @@ class PgDatabase implements Database {
         refreshToken: row.refresh_token,
         accessTokenExpiresAt: row.access_token_expires_at,
         scopes: stringArray(row.scopes),
+        providerApplicationId: row.provider_application_id,
+      })),
+      mattermost: mattermost.rows.map((row) => ({
+        id: row.id,
+        organizationId: row.organization_id,
+        slug: row.slug,
+        teamId: row.team_id,
+        teamName: row.team_name,
+        teamDisplayName: row.team_display_name,
+        serverUrl: row.server_url,
+        botUserId: row.bot_user_id,
+        botUsername: row.bot_username,
         providerApplicationId: row.provider_application_id,
       })),
     };
@@ -4110,6 +4147,10 @@ class PgDatabase implements Database {
     return this.connections.bindSlack(input);
   }
 
+  bindMattermostConnection(input: BindMattermostConnectionInput): Promise<void> {
+    return this.connections.bindMattermost(input);
+  }
+
   completeSlackProviderApplication(input: CompleteSlackProviderApplicationInput): Promise<void> {
     return this.connections.completeSlackProviderApplication(input);
   }
@@ -4167,6 +4208,14 @@ class PgDatabase implements Database {
 
   findDiscordConnectionForOrganization(organizationId: string, guildId: string) {
     return this.connections.findDiscordForOrganization(organizationId, guildId);
+  }
+
+  findMattermostConnection(teamId: string) {
+    return this.connections.findMattermost(teamId);
+  }
+
+  findMattermostConnectionForOrganization(organizationId: string, teamId: string) {
+    return this.connections.findMattermostForOrganization(organizationId, teamId);
   }
 
   removeDiscordConnection(guildId: string): Promise<void> {

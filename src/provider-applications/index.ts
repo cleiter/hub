@@ -4,10 +4,11 @@ import type { LinearInstallation } from "../providers/linear/client.js";
 import type { SlackSocketInstallationVerifier } from "../providers/slack/installation.js";
 import type { SlackDeliveryStatus } from "../triggers/slack/source/index.js";
 import { TRUSTED_REQUEST_ORIGIN_HEADER } from "../http/request-origin.js";
+import type { GatewayLiveness } from "../providers/registration.js";
 import { parseProviderApplicationConfiguration } from "./internal/store.js";
 import { reportFailure } from "../failures/index.js";
 
-export const PROVIDERS = ["github", "slack", "discord", "linear"] as const;
+export const PROVIDERS = ["github", "slack", "discord", "linear", "mattermost"] as const;
 export type Provider = (typeof PROVIDERS)[number];
 
 export interface GitHubProviderApplicationConfiguration {
@@ -56,17 +57,30 @@ export interface LinearProviderApplicationConfiguration {
   expectedVersion?: number;
 }
 
+/**
+ * One Mattermost server per Hub instance. `serverUrl` is the first non-secret provider config
+ * value in Hub — every other provider has a fixed, known host.
+ */
+export interface MattermostProviderApplicationConfiguration {
+  provider: "mattermost";
+  serverUrl: string;
+  botToken: string;
+  expectedVersion?: number;
+}
+
 export type ProviderApplicationConfiguration =
   | GitHubProviderApplicationConfiguration
   | SlackProviderApplicationConfiguration
   | DiscordProviderApplicationConfiguration
-  | LinearProviderApplicationConfiguration;
+  | LinearProviderApplicationConfiguration
+  | MattermostProviderApplicationConfiguration;
 
 export type ProviderApplicationIdentity =
   | { provider: "github"; id: string; name: string; ownerLogin: string }
   | { provider: "slack"; id: string; name: string }
   | { provider: "discord"; id: string; name: string }
-  | { provider: "linear"; id: string; name: string };
+  | { provider: "linear"; id: string; name: string }
+  | { provider: "mattermost"; id: string; name: string };
 
 export interface StoredProviderApplication {
   provider: Provider;
@@ -118,9 +132,30 @@ export interface ProviderApplicationStore {
   }): Promise<void>;
 }
 
+/**
+ * How a provider's connect action finishes. OAuth providers hand back a URL to send the browser
+ * to; a gateway provider like Mattermost holds the credential already, so its connect completes
+ * inside the same request and reports which resources it bound.
+ */
+export type ProviderConnectionStart = { url: string } | { connected: readonly string[] };
+
+/**
+ * A provider declined the connect for a reason the operator can act on themselves.
+ *
+ * The generic failure kinds all map to canned copy, which is right for "something broke" but
+ * wrong here: "check provider availability" sends an operator whose bot simply is not in a team
+ * looking in the wrong place. `reason` is Hub-authored copy and reaches the page verbatim.
+ */
+export class ProviderConnectionRefusedError extends Error {
+  constructor(readonly reason: string) {
+    super("provider_connection_refused");
+    this.name = "ProviderConnectionRefusedError";
+  }
+}
+
 export interface ProviderRuntimeCandidate {
   start(): Promise<void>;
-  beginConnection?(request: Request): Promise<{ url: string }>;
+  beginConnection?(request: Request): Promise<ProviderConnectionStart>;
   /** Publication is an in-memory pointer replacement and must not perform fallible work. */
   publish(): void;
   close(): Promise<void>;
@@ -139,6 +174,8 @@ export interface ProviderRuntimeOwner {
     },
   ): Promise<ProviderRuntimeCandidate>;
   identity?(provider: Provider): ProviderApplicationIdentity | undefined;
+  /** Undefined for providers that receive webhooks rather than holding a socket open. */
+  gatewayLiveness?(provider: Provider): GatewayLiveness | undefined;
   onSlackInstallation?(
     handler: (input: {
       configuration: unknown;
@@ -210,6 +247,8 @@ export interface ProviderApplicationView {
    */
   eventsConfigured: boolean;
   lastEventAt: string | null;
+  /** Per-machine socket health for gateway providers; null for webhook providers. */
+  gateway: GatewayLiveness | null;
   replaceable: boolean;
   configurationVersion: number | null;
   deliveryStatus?: SlackDeliveryStatus;
@@ -283,6 +322,7 @@ export class ProviderApplicationError extends Error {
 export type ProviderVerificationSubject =
   | "appToken"
   | "botToken"
+  | "serverUrl"
   | "clientSecret"
   | "privateKey"
   | "identityMismatch";
@@ -338,7 +378,7 @@ export interface ProviderApplications {
     provider: Provider,
     organizationId: string,
     surface?: ProviderApplicationSurface,
-  ): Promise<{ url: string }>;
+  ): Promise<ProviderConnectionStart>;
   configureSlackSocket(
     request: Request,
     input: { appToken: string; botToken: string; expectedVersion?: number },
@@ -361,8 +401,8 @@ interface ProviderApplicationsOptions {
     request: Request,
     organizationId: string,
     returnRoute: string,
-    begin: (request: Request) => Promise<{ url: string }>,
-  ) => Promise<{ url: string }>;
+    begin: (request: Request) => Promise<ProviderConnectionStart>,
+  ) => Promise<ProviderConnectionStart>;
   slackSocketVerifier?: SlackSocketInstallationVerifier;
   slackDelivery?: { status(): SlackDeliveryStatus; retry(): Promise<void> };
 }
@@ -405,11 +445,16 @@ export function createProviderApplications(
             connections,
             eventsConfigured: acceptsEvents(resolved),
             lastEventAt:
-              provider === "discord" || identity === null || configurationVersion === null
+              // Gateway providers have no signed webhook receipts to read a timestamp from.
+              provider === "discord" ||
+              provider === "mattermost" ||
+              identity === null ||
+              configurationVersion === null
                 ? null
                 : ((
                     await options.inventory.lastEventAt(provider, identity, configurationVersion)
                   )?.toISOString() ?? null),
+            gateway: options.runtime.gatewayLiveness?.(provider) ?? null,
             replaceable: connections.length === 0,
             configurationVersion,
             ...(deliveryStatus === undefined ? {} : { deliveryStatus }),
@@ -417,16 +462,24 @@ export function createProviderApplications(
           return [provider, view] as const;
         }),
       );
-      const [github, slack, discord, linear] = entries.map(([, view]) => view);
-      if (
-        github === undefined ||
-        slack === undefined ||
-        discord === undefined ||
-        linear === undefined
-      ) {
-        throw new Error("provider overview is incomplete");
-      }
-      return { callbackOrigin, providers: { github, slack, discord, linear } };
+      const views = new Map(entries);
+      const view = (provider: Provider): ProviderApplicationView => {
+        const value = views.get(provider);
+        if (value === undefined) throw new Error("provider overview is incomplete");
+        return value;
+      };
+      // Written out rather than derived so a new provider is a compile error here, not a
+      // surface that silently renders one card short.
+      return {
+        callbackOrigin,
+        providers: {
+          github: view("github"),
+          slack: view("slack"),
+          discord: view("discord"),
+          linear: view("linear"),
+          mattermost: view("mattermost"),
+        },
+      };
     },
 
     async verifyAndSave(request, provider, input, surface) {
@@ -501,6 +554,8 @@ export function createProviderApplications(
         } catch (error) {
           await closeCandidate(candidate, provider, "begin_connection");
           if (error instanceof ProviderApplicationError) throw error;
+          // An actionable refusal is not an internal failure; let its copy through.
+          if (error instanceof ProviderConnectionRefusedError) throw error;
           throw new ProviderApplicationError("internal", undefined, { cause: error });
         }
       });
@@ -684,6 +739,8 @@ function publicIdentifiers(
       return { applicationId: configuration.applicationId };
     case "linear":
       return { clientId: configuration.clientId };
+    case "mattermost":
+      return { serverUrl: configuration.serverUrl };
   }
   throw new Error("unknown provider configuration");
 }
@@ -891,7 +948,7 @@ async function beginSlackConfiguration(
     throw new ProviderApplicationError("internal");
   }
   try {
-    const { url } = await options.beginCandidateConnection(
+    const started = await options.beginCandidateConnection(
       request,
       organizationId,
       returnRoute,
@@ -900,8 +957,10 @@ async function beginSlackConfiguration(
         return result ?? Promise.reject(new Error("provider unavailable"));
       },
     );
+    // Slack's save *is* its install, so this path only makes sense as a redirect.
+    if (!("url" in started)) throw new Error("provider unavailable");
     await candidate.close();
-    return { status: "continuing", provider: "slack", url };
+    return { status: "continuing", provider: "slack", url: started.url };
   } catch (error) {
     await closeCandidate(candidate, "slack", "begin_configuration");
     if (error instanceof ProviderApplicationError) throw error;
@@ -947,7 +1006,7 @@ async function beginLinearConfiguration(
     throw new ProviderApplicationError("internal");
   }
   try {
-    const { url } = await options.beginCandidateConnection(
+    const start = await options.beginCandidateConnection(
       request,
       organizationId,
       returnRoute,
@@ -956,8 +1015,11 @@ async function beginLinearConfiguration(
         return result ?? Promise.reject(new Error("provider unavailable"));
       },
     );
+    // Linear authorizes through a redirect; a gateway-shaped answer here means the candidate
+    // is not the provider this path was written for.
+    if (!("url" in start)) throw new ProviderApplicationError("internal");
     await candidate.close();
-    return { status: "continuing", provider: "linear", url };
+    return { status: "continuing", provider: "linear", url: start.url };
   } catch (error) {
     await closeCandidate(candidate, "linear", "begin_configuration");
     if (error instanceof ProviderApplicationError) throw error;

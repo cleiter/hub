@@ -1,0 +1,17 @@
+{
+  "broadcast": {
+    "channel_id": "",
+    "connection_id": "",
+    "omit_connection_id": "",
+    "omit_users": null,
+    "team_id": "",
+    "user_id": "r8busjtmztnxdro8a1bam8j5fh"
+  },
+  "data": {
+    "connection_id": "m9bqnrw39tb5dpbgdkz6zeh93e",
+    "server_hostname": "57d8ad290fb6",
+    "server_version": "11.10.0.30888075807.0732722aaf83a6f2566ca66047275acadea2294f1737bab75a82d275c560b9fc.false"
+  },
+  "event": "hello",
+  "seq": 0
+}

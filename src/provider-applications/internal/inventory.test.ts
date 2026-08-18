@@ -19,6 +19,7 @@ describe("inventory provider mappings", () => {
     slack: "slack_connections",
     discord: "discord_connections",
     linear: "linear_connections",
+    mattermost: "mattermost_connections",
   } satisfies Record<(typeof CONNECTION_PROVIDERS)[number], string>;
 
   it("connectionTable returns the correct table for every provider", () => {

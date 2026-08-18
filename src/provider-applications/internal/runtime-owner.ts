@@ -1,4 +1,5 @@
 import type { AuthServer } from "../../auth/server.js";
+import { z } from "zod";
 import { createHash } from "node:crypto";
 import type { GitHubConfigurationProvider } from "../../configuration/github-sync.js";
 import type { Database } from "../../db/types.js";
@@ -8,22 +9,36 @@ import { reportFailure } from "../../failures/index.js";
 import { createDiscordRegistration } from "../../providers/discord/index.js";
 import { createGitHubRegistration } from "../../providers/github/index.js";
 import { createLinearRegistration } from "../../providers/linear/index.js";
+import { createMattermostRegistration } from "../../providers/mattermost/index.js";
+import { mattermostStartRefusal } from "../../providers/mattermost/refusals.js";
 import type {
+  GatewayLiveness,
   ProviderRegistration,
   TriggerProviderResources,
 } from "../../providers/registration.js";
 import { createSlackRegistration } from "../../providers/slack/index.js";
 import type { TriggerHandler, TriggerProvider, TriggerSource } from "../../triggers/index.js";
-import type {
-  Provider,
-  ProviderApplicationConfiguration,
-  ProviderApplicationIdentity,
-  ProviderRuntimeCandidate,
-  ProviderRuntimeOwner,
+import {
+  PROVIDERS,
+  ProviderConnectionRefusedError,
+  type Provider,
+  type ProviderApplicationConfiguration,
+  type ProviderApplicationIdentity,
+  type ProviderRuntimeCandidate,
+  type ProviderRuntimeOwner,
 } from "../index.js";
 import { parseProviderApplicationConfiguration } from "./store.js";
 import type { SlackDeliveryStatus } from "../../triggers/slack/source/index.js";
 import { GITHUB_TRIGGER_SOURCE_NAMES } from "../../triggers/github/classification.js";
+
+/**
+ * What a provider's `start` action may return: a URL to redirect the browser to, or — for a
+ * gateway provider that already holds its credential — the resources it just bound.
+ */
+const CONNECTION_START_SCHEMA = z.union([
+  z.object({ url: z.string().url() }),
+  z.object({ connected: z.array(z.string()) }),
+]);
 
 interface Slot {
   active: ActiveRegistration | undefined;
@@ -78,31 +93,34 @@ interface DynamicProviderRuntimeOptions {
   }) => ProviderRegistration;
 }
 
+/** The options every provider registration is built from, whatever else it needs on top. */
+interface SharedRegistrationOptions {
+  database: Database;
+  auth: AuthServer;
+  applicationBaseUrl: string;
+  publicBaseUrl: string;
+  configurationVersion: number;
+  fetch?: typeof fetch;
+}
+
 /** @package */
 export class DynamicProviderRuntime implements ProviderRuntimeOwner {
-  private readonly slots = new Map<Provider, Slot>([
-    ["github", emptySlot()],
-    ["slack", emptySlot()],
-    ["discord", emptySlot()],
-    ["linear", emptySlot()],
-  ]);
+  private readonly slots = new Map<Provider, Slot>(
+    PROVIDERS.map((provider) => [provider, emptySlot()]),
+  );
   private readonly stable = new Map<Provider, ProviderRegistration>();
   private slackInstallationHandler: SlackInstallationHandler | undefined;
   private linearInstallationHandler: LinearInstallationHandler | undefined;
 
   constructor(private readonly options: DynamicProviderRuntimeOptions) {
-    for (const provider of ["github", "slack", "discord", "linear"] as const) {
+    for (const provider of PROVIDERS) {
       this.stable.set(provider, this.stableRegistration(provider));
     }
   }
 
+  /** Derived from `PROVIDERS` so a new provider cannot be silently left unregistered. */
   registrations(): readonly ProviderRegistration[] {
-    return [
-      this.stable.get("github")!,
-      this.stable.get("discord")!,
-      this.stable.get("slack")!,
-      this.stable.get("linear")!,
-    ];
+    return PROVIDERS.map((provider) => this.stable.get(provider)!);
   }
 
   identity(provider: Provider): ProviderApplicationIdentity | undefined {
@@ -111,6 +129,14 @@ export class DynamicProviderRuntime implements ProviderRuntimeOwner {
 
   slackDelivery(): { status(): SlackDeliveryStatus; retry(): Promise<void> } | undefined {
     return this.slot("slack").active?.registration.slackDelivery;
+  }
+
+  /**
+   * Read from the published registration rather than a cached copy: after a configuration bump
+   * the old socket is gone, and reporting its last known state would be a lie.
+   */
+  gatewayLiveness(provider: Provider): GatewayLiveness | undefined {
+    return this.slot(provider).active?.registration.gateway?.();
   }
 
   onSlackInstallation(
@@ -168,15 +194,20 @@ export class DynamicProviderRuntime implements ProviderRuntimeOwner {
       },
       beginConnection: async (request) => {
         const response = await registration.connection.actions["start"]?.(request);
-        if (response === undefined || !response.ok)
+        if (response === undefined) throw unavailable("provider_application_unavailable");
+        if (!response.ok) {
+          // Only Mattermost authors these codes today, and an unrecognized body yields
+          // undefined, so this is safe to try for every provider.
+          const refusal = await mattermostStartRefusal(response);
+          if (refusal !== undefined) throw new ProviderConnectionRefusedError(refusal);
           throw unavailable("provider_application_unavailable");
+        }
         const body: unknown = await response.json();
-        const url =
-          body !== null && typeof body === "object" && "url" in body
-            ? Reflect.get(body, "url")
-            : undefined;
-        if (typeof url !== "string") throw unavailable("provider_application_unavailable");
-        return { url };
+        // A gateway provider already holds its credential, so its connect finishes here instead
+        // of handing back a URL. Requiring a URL made "Connect a team" unreachable for Mattermost.
+        const start = CONNECTION_START_SCHEMA.safeParse(body);
+        if (!start.success) throw unavailable("provider_application_unavailable");
+        return start.data;
       },
       publish: () => {
         const previous = slot.active;
@@ -230,6 +261,25 @@ export class DynamicProviderRuntime implements ProviderRuntimeOwner {
       configurationVersion,
       ...(this.options.fetch === undefined ? {} : { fetch: this.options.fetch }),
     };
+    return this.buildProvider(provider, configuration, callbackOrigin, shared, activation);
+  }
+
+  /**
+   * Split out of `build` so that adding a provider costs one branch here rather than pushing the
+   * whole of `build` — factory override, shared options, and dispatch — past its complexity budget.
+   */
+  private buildProvider(
+    provider: Provider,
+    configuration: ProviderApplicationConfiguration,
+    callbackOrigin: string,
+    shared: SharedRegistrationOptions,
+    activation:
+      | {
+          expectedConfigurationVersion: number | undefined;
+          activateConfiguration: boolean;
+        }
+      | undefined,
+  ): ProviderRegistration {
     if (provider === "github" && configuration.provider === "github") {
       return createGitHubRegistration({ ...shared, configuration });
     }
@@ -263,6 +313,16 @@ export class DynamicProviderRuntime implements ProviderRuntimeOwner {
           : { expectedConfigurationVersion: activation.expectedConfigurationVersion }),
         activateConfiguration: activation?.activateConfiguration ?? false,
         onVerifiedInstallation: (input) => this.handleLinearInstallation(input),
+      });
+    }
+    if (provider === "mattermost" && configuration.provider === "mattermost") {
+      return createMattermostRegistration({
+        ...shared,
+        callbackOrigin,
+        configuration: {
+          serverUrl: configuration.serverUrl,
+          botToken: configuration.botToken,
+        },
       });
     }
     throw new Error("provider configuration mismatch");
@@ -419,8 +479,9 @@ export class DynamicProviderRuntime implements ProviderRuntimeOwner {
                 },
               },
             ],
+      // Gateway providers connect out to the service, so they expose no inbound HTTP route.
       requests:
-        provider === "discord"
+        provider === "discord" || provider === "mattermost"
           ? []
           : [
               {
@@ -437,7 +498,7 @@ export class DynamicProviderRuntime implements ProviderRuntimeOwner {
       ...(provider === "github"
         ? { githubConfiguration: this.dynamicGitHubConfiguration(slot) }
         : {}),
-      ...(provider === "slack" || provider === "discord"
+      ...(provider === "slack" || provider === "discord" || provider === "mattermost"
         ? {
             attachment: {
               provider,
@@ -634,6 +695,8 @@ function emptySlot(): Slot {
 
 function actionNames(provider: Provider): readonly string[] {
   if (provider === "github") return ["start", "disconnect", "setup", "callback"];
+  // Mattermost has no OAuth round trip, so there is no callback to expose.
+  if (provider === "mattermost") return ["start", "disconnect"];
   return ["start", "disconnect", "callback"];
 }
 
@@ -641,6 +704,7 @@ function eventNames(provider: Provider): TriggerProvider["eventNames"] {
   if (provider === "slack") return ["slack.mention"];
   if (provider === "discord") return ["discord.mention"];
   if (provider === "linear") return ["linear.issue", "linear.comment"];
+  if (provider === "mattermost") return ["mattermost.mention"];
   return GITHUB_TRIGGER_SOURCE_NAMES;
 }
 

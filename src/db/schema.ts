@@ -32,7 +32,7 @@ export type AgentExecutionStatus = (typeof AGENT_EXECUTION_STATUSES)[number];
 export const PROJECT_STATUSES = ["active", "archived"] as const;
 export const CONFIGURATION_SOURCE_KINDS = ["github", "manual"] as const;
 export const TRIGGER_FORMATS = ["single_run", "legacy_multistep"] as const;
-export const CONNECTION_PROVIDERS = ["github", "slack", "discord", "linear"] as const;
+export const CONNECTION_PROVIDERS = ["github", "slack", "discord", "linear", "mattermost"] as const;
 
 export type MachineSource =
   | { kind: "manual"; userId?: string }
@@ -86,7 +86,7 @@ export const providerEventReceipts = pgTable(
     ),
     check(
       "provider_event_receipts_provider_check",
-      sql`${table.provider} in ('github', 'slack', 'discord', 'linear', 'manual')`,
+      sql`${table.provider} in ('github', 'slack', 'discord', 'linear', 'mattermost', 'manual')`,
     ),
   ],
 );
@@ -100,7 +100,7 @@ export const attachmentCapabilities = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     connectionId: uuid("connection_id").notNull(),
-    provider: text().$type<"slack" | "discord">().notNull(),
+    provider: text().$type<"slack" | "discord" | "mattermost">().notNull(),
     sourceId: text("source_id").notNull(),
     locator: jsonb().notNull(),
     filename: text().notNull(),
@@ -115,7 +115,10 @@ export const attachmentCapabilities = pgTable(
       table.sourceId,
     ),
     index("attachment_capabilities_receipt_idx").on(table.providerEventReceiptId),
-    check("attachment_capabilities_provider_check", sql`${table.provider} in ('slack', 'discord')`),
+    check(
+      "attachment_capabilities_provider_check",
+      sql`${table.provider} in ('slack', 'discord', 'mattermost')`,
+    ),
     foreignKey({
       columns: [table.providerEventReceiptId, table.organizationId],
       foreignColumns: [providerEventReceipts.id, providerEventReceipts.organizationId],
@@ -254,7 +257,7 @@ export const projectTriggerRoutes = pgTable(
     }).onDelete("cascade"),
     check(
       "project_trigger_routes_provider_check",
-      sql`${table.provider} in ('github', 'slack', 'discord', 'linear')`,
+      sql`${table.provider} in ('github', 'slack', 'discord', 'linear', 'mattermost')`,
     ),
   ],
 );
@@ -838,7 +841,7 @@ export const organizationConnectionAttempts = pgTable(
   "organization_connection_attempts",
   {
     id: uuid().defaultRandom().primaryKey(),
-    provider: text().$type<"github" | "discord" | "slack" | "linear">().notNull(),
+    provider: text().$type<"github" | "discord" | "slack" | "linear" | "mattermost">().notNull(),
     phase: text()
       .$type<
         | "github_setup"
@@ -846,6 +849,7 @@ export const organizationConnectionAttempts = pgTable(
         | "discord_authorization"
         | "slack_authorization"
         | "linear_authorization"
+        | "mattermost_authorization"
       >()
       .notNull(),
     stateVerifier: text("state_verifier").notNull().unique(),
@@ -875,11 +879,11 @@ export const organizationConnectionAttempts = pgTable(
     index("organization_connection_attempts_expiry_idx").on(table.expiresAt),
     check(
       "organization_connection_attempts_provider_check",
-      sql`${table.provider} in ('github', 'discord', 'slack', 'linear')`,
+      sql`${table.provider} in ('github', 'discord', 'slack', 'linear', 'mattermost')`,
     ),
     check(
       "organization_connection_attempts_phase_check",
-      sql`${table.phase} in ('github_setup', 'github_user_authorization', 'discord_authorization', 'slack_authorization', 'linear_authorization')`,
+      sql`${table.phase} in ('github_setup', 'github_user_authorization', 'discord_authorization', 'slack_authorization', 'linear_authorization', 'mattermost_authorization')`,
     ),
     check(
       "organization_connection_attempts_shape_check",
@@ -887,7 +891,8 @@ export const organizationConnectionAttempts = pgTable(
         or (${table.phase} = 'github_user_authorization' and ${table.provider} = 'github' and ${table.candidateExternalId} is not null and (${table.pkceVerifier} is not null or ${table.consumedAt} is not null))
         or (${table.phase} = 'discord_authorization' and ${table.provider} = 'discord' and ${table.candidateExternalId} is null and ${table.pkceVerifier} is null)
         or (${table.phase} = 'slack_authorization' and ${table.provider} = 'slack' and ${table.candidateExternalId} is null and ${table.pkceVerifier} is null)
-        or (${table.phase} = 'linear_authorization' and ${table.provider} = 'linear' and ${table.candidateExternalId} is null and ${table.pkceVerifier} is null)`,
+        or (${table.phase} = 'linear_authorization' and ${table.provider} = 'linear' and ${table.candidateExternalId} is null and ${table.pkceVerifier} is null)
+        or (${table.phase} = 'mattermost_authorization' and ${table.provider} = 'mattermost' and ${table.candidateExternalId} is null and ${table.pkceVerifier} is null)`,
     ),
   ],
 );
@@ -1038,6 +1043,44 @@ export const linearConnections = pgTable(
     uniqueIndex("linear_connections_organization_external_unique").on(
       table.organizationId,
       table.linearOrganizationId,
+    ),
+  ],
+);
+
+/**
+ * A connection is one Mattermost **team**.
+ *
+ * Unlike Slack, there is no per-connection bot credential to store here: a Hub instance talks to
+ * exactly one Mattermost server, and the bot token lives on the provider application. Team
+ * scoping is therefore enforced by Hub code alone, with no provider-side backstop — see
+ * `docs/` and the operator guide for the honest statement of that limit.
+ */
+export const mattermostConnections = pgTable(
+  "mattermost_connections",
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    teamId: text("team_id").notNull().unique(),
+    providerApplicationId: text("provider_application_id"),
+    slug: text().notNull(),
+    teamName: text("team_name").notNull(),
+    teamDisplayName: text("team_display_name").notNull(),
+    serverUrl: text("server_url").notNull(),
+    botUserId: text("bot_user_id").notNull(),
+    botUsername: text("bot_username").notNull(),
+    connectedByUserId: text("connected_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    connectedAt: timestamp("connected_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("mattermost_connections_id_organization_unique").on(table.id, table.organizationId),
+    uniqueIndex("mattermost_connections_organization_slug_unique").on(
+      table.organizationId,
+      table.slug,
     ),
   ],
 );
@@ -1235,7 +1278,7 @@ export const runtimeProviderConfiguration = pgTable(
   (table) => [
     check(
       "runtime_provider_configuration_provider_check",
-      sql`${table.provider} in ('github', 'slack', 'discord', 'linear')`,
+      sql`${table.provider} in ('github', 'slack', 'discord', 'linear', 'mattermost')`,
     ),
     check("runtime_provider_configuration_version_check", sql`${table.version} > 0`),
   ],
@@ -1252,7 +1295,7 @@ export const runtimeProviderActivations = pgTable(
   (table) => [
     check(
       "runtime_provider_activation_provider_check",
-      sql`${table.provider} in ('github', 'slack', 'discord', 'linear')`,
+      sql`${table.provider} in ('github', 'slack', 'discord', 'linear', 'mattermost')`,
     ),
     check("runtime_provider_activation_version_check", sql`${table.configurationVersion} >= 0`),
   ],

@@ -87,6 +87,8 @@ export function connectionTable(provider: Provider): string {
       return "discord_connections";
     case "linear":
       return "linear_connections";
+    case "mattermost":
+      return "mattermost_connections";
     default:
       return assertNever(provider, "connectionTable");
   }
@@ -115,6 +117,11 @@ export function connectionIdentityQuery(provider: Provider): string {
                      provider_application_id as application_id,
                      false as action_needed, scopes, refresh_token, access_token_expires_at
               from linear_connections order by connected_at`;
+    case "mattermost":
+      return `select id::text as id, team_display_name as name,
+                     provider_application_id as application_id,
+                     false as action_needed, null::jsonb as scopes
+              from mattermost_connections order by connected_at`;
     default:
       return assertNever(provider, "connectionIdentityQuery");
   }

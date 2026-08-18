@@ -11,6 +11,7 @@ import {
   readGitHubTriggerUrl,
 } from "../auth/github-events.js";
 import { NormalizedDiscordMessageEventSchema } from "../triggers/discord/events.js";
+import { NormalizedMattermostMentionEventSchema } from "../triggers/mattermost/events.js";
 import { NormalizedSlackMentionEventSchema } from "../triggers/slack/events.js";
 import { NormalizedLinearEventSchema } from "../triggers/linear/events.js";
 import { classifyGitHubEvent } from "../triggers/github/classification.js";
@@ -45,6 +46,8 @@ export function summarizeTrigger(source: string, payload: unknown): TriggerSumma
       return summarizeDiscord(payload);
     case "linear":
       return summarizeLinear(payload);
+    case "mattermost":
+      return summarizeMattermost(payload);
     default:
       return assertNever(provider, "summarizeTrigger");
   }
@@ -61,6 +64,7 @@ const PROVIDERS_BY_SOURCE_PREFIX: ReadonlyMap<string, ConnectionProvider> = new 
     slack: "slack",
     discord: "discord",
     linear: "linear",
+    mattermost: "mattermost",
   } satisfies Record<ConnectionProvider, ConnectionProvider>),
 );
 
@@ -222,6 +226,39 @@ function summarizeLinear(payload: unknown): TriggerSummary {
     actor: event.data.actor?.name ?? event.data.actor?.id ?? null,
     externalUrl: issue.url ?? null,
   };
+}
+
+function summarizeMattermost(payload: unknown): TriggerSummary {
+  const event = NormalizedMattermostMentionEventSchema.safeParse(payload);
+  if (!event.success) {
+    return {
+      provider: "mattermost",
+      headline: "Mattermost mention",
+      actor: null,
+      externalUrl: null,
+    };
+  }
+  const content = event.data.content.trim();
+  return {
+    provider: "mattermost",
+    headline: content.length > 0 ? truncate(content, 96) : "Mattermost mention",
+    actor: event.data.author.username ?? null,
+    externalUrl: mattermostPermalink(event.data),
+  };
+}
+
+/**
+ * `<server>/<team name>/pl/<post id>` is the permalink form Mattermost itself produces. Both
+ * parts come from the gateway rather than the event frame, so an event recorded before they were
+ * added — or one whose team lookup failed — simply has no link.
+ */
+function mattermostPermalink(event: {
+  serverUrl?: string | undefined;
+  teamName?: string | undefined;
+  postId: string;
+}): string | null {
+  if (event.serverUrl === undefined || event.teamName === undefined) return null;
+  return `${event.serverUrl.replace(/\/+$/u, "")}/${event.teamName}/pl/${event.postId}`;
 }
 
 function summarizeManual(payload: unknown): TriggerSummary {

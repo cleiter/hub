@@ -36,7 +36,7 @@ describe("provider application OAuth bind authority", () => {
       const fixture = await databaseFixture(engine);
       try {
         await seedAuthority(fixture.bundle);
-        for (const provider of ["github", "slack", "discord", "linear"] as const) {
+        for (const provider of ["github", "slack", "discord", "linear", "mattermost"] as const) {
           await rejectsStoredReplacement(fixture.bundle, provider);
           await resetProvider(fixture.bundle, provider);
           await serializesReplacementRace(fixture.bundle, provider);
@@ -238,6 +238,7 @@ function callbackPhase(provider: Provider) {
   if (provider === "github") return "github_user_authorization" as const;
   if (provider === "slack") return "slack_authorization" as const;
   if (provider === "linear") return "linear_authorization" as const;
+  if (provider === "mattermost") return "mattermost_authorization" as const;
   return "discord_authorization" as const;
 }
 
@@ -313,6 +314,18 @@ function bind(
       accessToken: "linear-token",
       refreshToken: "linear-refresh-token",
       scopes: ["read", "comments:create"],
+    });
+  }
+  if (provider === "mattermost") {
+    return database.bindMattermostConnection({
+      ...shared,
+      phase: "mattermost_authorization",
+      teamId: "team",
+      teamName: "acme",
+      teamDisplayName: "Acme",
+      serverUrl: "https://mattermost.example.com",
+      botUserId: "bot",
+      botUsername: "paseobot",
     });
   }
   return database.bindDiscordConnection({
@@ -391,6 +404,12 @@ function application(provider: Provider, suffix: string) {
       clientSecret: `linear-secret-${suffix}`,
       webhookSecret: `linear-webhook-${suffix}`,
     };
+  } else if (provider === "mattermost") {
+    configuration = {
+      provider,
+      serverUrl: `https://${suffix}.mattermost.example.com`,
+      botToken: `mattermost-token-${suffix}`,
+    };
   } else {
     configuration = {
       provider,
@@ -416,6 +435,9 @@ function identity(configuration: ProviderApplicationConfiguration): ProviderAppl
   }
   if (configuration.provider === "linear") {
     return { provider: "linear", id: configuration.clientId, name: configuration.clientId };
+  }
+  if (configuration.provider === "mattermost") {
+    return { provider: "mattermost", id: configuration.serverUrl, name: "paseobot" };
   }
   return {
     provider: "discord",

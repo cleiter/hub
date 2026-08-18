@@ -154,6 +154,59 @@ describe("summarizeTrigger", () => {
     });
   });
 
+  it("summarizes a Mattermost mention with the author's username and a permalink", () => {
+    const summary = summarizeTrigger("mattermost.mention", {
+      type: "mention",
+      id: "gya6fp1krpnzurby4ko68edsiw",
+      teamId: "n647fxr7atdepji7rcpw4qtdia",
+      channelId: "kjc8ynfyhtb9jbxrbwzcqcqxfe",
+      channelType: "O",
+      postId: "gya6fp1krpnzurby4ko68edsiw",
+      rootId: null,
+      createAt: 1_700_000_000_000,
+      content: "please rerun the migration",
+      author: { id: "r8busjtmztnxdro8a1bam8j5fh", username: "erin" },
+      mentionedUserIds: [],
+      createdAt: new Date().toISOString(),
+      attachments: [],
+      serverUrl: "https://chat.example.com",
+      teamName: "platform",
+    });
+
+    assert.deepEqual(summary, {
+      provider: "mattermost",
+      headline: "please rerun the migration",
+      actor: "erin",
+      externalUrl: "https://chat.example.com/platform/pl/gya6fp1krpnzurby4ko68edsiw",
+    });
+  });
+
+  it("leaves a Mattermost mention unlinked when the gateway could not resolve the team name", () => {
+    const summary = summarizeTrigger("mattermost.mention", {
+      type: "mention",
+      id: "gya6fp1krpnzurby4ko68edsiw",
+      teamId: "n647fxr7atdepji7rcpw4qtdia",
+      channelId: "kjc8ynfyhtb9jbxrbwzcqcqxfe",
+      channelType: "O",
+      postId: "gya6fp1krpnzurby4ko68edsiw",
+      rootId: null,
+      createAt: 1_700_000_000_000,
+      content: "",
+      author: { id: "r8busjtmztnxdro8a1bam8j5fh" },
+      mentionedUserIds: [],
+      createdAt: new Date().toISOString(),
+      attachments: [],
+      serverUrl: "https://chat.example.com",
+    });
+
+    assert.deepEqual(summary, {
+      provider: "mattermost",
+      headline: "Mattermost mention",
+      actor: null,
+      externalUrl: null,
+    });
+  });
+
   it("summarizes a manual run with the trigger and actor", () => {
     const summary = summarizeTrigger("manual.run", { trigger: "rollback", actor: "dana" });
 

@@ -18,7 +18,13 @@ import {
   readSlackPromptBody,
 } from "./match.js";
 import { matchesInputFilters, parseInvocation } from "../invocation.js";
-import { reactionPhase, type ReactionPhase } from "../reactions.js";
+import {
+  addReaction,
+  reactionPhase,
+  removeReactionForPhase,
+  replaceReaction,
+  type ReactionPort,
+} from "../reactions.js";
 
 export interface SlackAttachmentLocator {
   id: string;
@@ -243,12 +249,17 @@ export function createSlackTriggerProvider(options: {
     },
     async onAgentExecutionStarted(context, _outputContext, reactionState) {
       if (reactionPhase(reactionState) === "started") return reactionState;
-      await replaceReaction(options.client, context.target, "eyes", "hourglass_flowing_sand");
+      await replaceReaction(
+        reactionPort(options.client, context.target),
+        "eyes",
+        "hourglass_flowing_sand",
+      );
       return { phase: "started" };
     },
     async onAgentExecutionCompleted(context, _outputContext, _result, reactionState) {
-      await removeReactionForPhase(options.client, context.target, reactionState, "started");
-      await addReaction(options.client, context.target, "white_check_mark");
+      const port = reactionPort(options.client, context.target);
+      await removeReactionForPhase(port, reactionState, "started");
+      await addReaction(port, "white_check_mark");
       return null;
     },
     async onAgentExecutionFailed(context, _output, reason, reactionState) {
@@ -301,23 +312,21 @@ function needsSlackUsername(
   );
 }
 
-async function removeReactionForPhase(
-  client: SlackBotClient,
-  target: SlackOutputContext,
-  reactionState: TriggerProviderReactionState | undefined,
-  fallbackPhase?: ReactionPhase,
-): Promise<void> {
-  const phase = reactionPhase(reactionState) ?? fallbackPhase;
-  if (phase === "accepted") {
-    await removeReactionSafely(client, target, "eyes");
-    return;
-  }
-  if (phase === "started") {
-    await removeReactionSafely(client, target, "hourglass_flowing_sand");
-    return;
-  }
-  await removeReactionSafely(client, target, "eyes");
-  await removeReactionSafely(client, target, "hourglass_flowing_sand");
+/** Binds the shared reaction machine to one Slack message. */
+function reactionPort(client: SlackBotClient, event: SlackOutputContext): ReactionPort {
+  const scope = {
+    organizationId: event.organizationId,
+    teamId: event.teamId,
+    channelId: event.channelId,
+    messageTs: event.messageTs,
+  };
+  return {
+    provider: "slack",
+    emoji: { accepted: "eyes", started: "hourglass_flowing_sand" },
+    add: (name) => client.addReaction({ ...scope, name }),
+    remove: (name) => client.removeReaction({ ...scope, name }),
+    diagnostic: (name) => ({ teamId: event.teamId, reaction: name }),
+  };
 }
 
 function buildSlackMergeData(
@@ -394,24 +403,15 @@ async function registerAttachments(
   return references.map((reference) => attachments.materialize(reference, executionId));
 }
 
-async function replaceReaction(
-  client: SlackBotClient,
-  event: SlackOutputContext,
-  from: string,
-  to: string,
-): Promise<void> {
-  await removeReactionSafely(client, event, from);
-  await addReactionSafely(client, event, to);
-}
-
 async function failWithNotice(
   client: SlackBotClient,
   event: SlackOutputContext,
   reason: string,
   reactionState?: TriggerProviderReactionState,
 ): Promise<void> {
-  await removeReactionForPhase(client, event, reactionState);
-  await addReaction(client, event, "x");
+  const port = reactionPort(client, event);
+  await removeReactionForPhase(port, reactionState);
+  await addReaction(port, "x");
   await client.sendMessage({
     organizationId: event.organizationId,
     teamId: event.teamId,
@@ -419,62 +419,4 @@ async function failWithNotice(
     threadTs: event.threadTs,
     content: `Paseo agent failed: ${reason}`,
   });
-}
-
-async function addReaction(
-  client: SlackBotClient,
-  event: SlackOutputContext,
-  name: string,
-): Promise<void> {
-  await client.addReaction({
-    organizationId: event.organizationId,
-    teamId: event.teamId,
-    channelId: event.channelId,
-    messageTs: event.messageTs,
-    name,
-  });
-}
-
-async function addReactionSafely(
-  client: SlackBotClient,
-  event: SlackOutputContext,
-  name: string,
-): Promise<void> {
-  try {
-    await client.addReaction({
-      organizationId: event.organizationId,
-      teamId: event.teamId,
-      channelId: event.channelId,
-      messageTs: event.messageTs,
-      name,
-    });
-  } catch (error) {
-    reportFailure(
-      error,
-      { operation: "slack.reaction.add", component: "triggers", provider: "slack" },
-      { diagnostic: { teamId: event.teamId, reaction: name } },
-    );
-  }
-}
-
-async function removeReactionSafely(
-  client: SlackBotClient,
-  event: SlackOutputContext,
-  name: string,
-): Promise<void> {
-  try {
-    await client.removeReaction({
-      organizationId: event.organizationId,
-      teamId: event.teamId,
-      channelId: event.channelId,
-      messageTs: event.messageTs,
-      name,
-    });
-  } catch (error) {
-    reportFailure(
-      error,
-      { operation: "slack.reaction.cleanup", component: "triggers", provider: "slack" },
-      { diagnostic: { teamId: event.teamId, reaction: name } },
-    );
-  }
 }

@@ -5,11 +5,12 @@ import { createMemoryDatabase } from "../../db/memory.js";
 import type { DurableProviderEvent } from "../../db/types.js";
 import type { ProviderRegistration } from "../../providers/registration.js";
 import type { ExternalTrigger, TriggerHandler, TriggerProvider } from "../../triggers/index.js";
-import type {
-  Provider,
-  ProviderApplicationConfiguration,
-  ProviderApplicationIdentity,
-  SlackProviderApplicationConfiguration,
+import {
+  ProviderConnectionRefusedError,
+  type Provider,
+  type ProviderApplicationConfiguration,
+  type ProviderApplicationIdentity,
+  type SlackProviderApplicationConfiguration,
 } from "../index.js";
 import { DynamicProviderRuntime } from "./runtime-owner.js";
 
@@ -590,6 +591,151 @@ describe("dynamic provider runtime", () => {
 
     assert.deepEqual(accepted, ["first-active", "second-active"]);
   });
+
+  it("restarts the Mattermost gateway across a configuration bump without leaking the old one", async () => {
+    const started: string[] = [];
+    const stopped: string[] = [];
+    const runtime = new DynamicProviderRuntime({
+      database: createMemoryDatabase(),
+      auth: testAuth(),
+      applicationBaseUrl: "https://hub.test",
+      registrationFactory: ({ provider, configuration }) => {
+        const id = providerConfigurationId(configuration);
+        return {
+          ...connectionRegistration(provider, id),
+          sources: [
+            {
+              start: () => {
+                started.push(id);
+                return Promise.resolve();
+              },
+              stop: () => {
+                stopped.push(id);
+                return Promise.resolve();
+              },
+            },
+          ],
+        };
+      },
+    });
+    const stable = runtime
+      .registrations()
+      .find((registration) => registration.connection.name === "mattermost");
+    // A provider missing from `registrations()` has no source at all, so its gateway never opens.
+    assert(stable !== undefined);
+    await stable.sources[0]!.start(() => Promise.resolve());
+
+    const first = await runtime.prepare(
+      "mattermost",
+      providerConfiguration("mattermost", "one"),
+      "https://hub.test",
+      providerIdentity("mattermost", "one"),
+      1,
+    );
+    await first.start();
+    first.publish();
+    const second = await runtime.prepare(
+      "mattermost",
+      providerConfiguration("mattermost", "two"),
+      "https://hub.test",
+      providerIdentity("mattermost", "two"),
+      2,
+    );
+    await second.start();
+    second.publish();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const firstId = providerConfigurationId(providerConfiguration("mattermost", "one"));
+    const secondId = providerConfigurationId(providerConfiguration("mattermost", "two"));
+    assert.deepEqual(started, [firstId, secondId]);
+    // The socket the bump replaced is closed; without this the process holds two live gateways.
+    assert.deepEqual(stopped, [firstId]);
+  });
+
+  it("carries a gateway connect that completes in place, and its refusal, back to the caller", async () => {
+    const runtime = new DynamicProviderRuntime({
+      database: createMemoryDatabase(),
+      auth: testAuth(),
+      applicationBaseUrl: "https://hub.test",
+      registrationFactory: ({ provider, configuration }) => ({
+        ...connectionRegistration(provider, providerConfigurationId(configuration)),
+        connection: {
+          name: provider,
+          status: () => ({ status: "connected" }),
+          actions: {
+            start: (request: Request) =>
+              Promise.resolve(
+                request.headers.get("x-teams") === "none"
+                  ? Response.json({ error: "mattermost_bot_has_no_teams" }, { status: 409 })
+                  : Response.json({ connected: ["team-a"] }),
+              ),
+          },
+        },
+      }),
+    });
+    const candidate = await runtime.prepare(
+      "mattermost",
+      providerConfiguration("mattermost", "one"),
+      "https://hub.test",
+      providerIdentity("mattermost", "one"),
+      1,
+    );
+
+    // A gateway provider holds its credential already, so its connect binds here rather than
+    // handing back a redirect. Insisting on a URL made "Connect a team" unreachable.
+    assert.deepEqual(await candidate.beginConnection!(new Request("https://hub.test/connect")), {
+      connected: ["team-a"],
+    });
+
+    const refused = await candidate.beginConnection!(
+      new Request("https://hub.test/connect", { headers: { "x-teams": "none" } }),
+    ).catch((error: unknown) => error);
+    // The operator can fix this themselves, so the reason has to survive rather than collapse
+    // into a generic "provider unavailable".
+    assert(refused instanceof ProviderConnectionRefusedError);
+    assert.match(refused.reason, /member of any Mattermost team/u);
+  });
+
+  it("reports gateway liveness from the published registration only", async () => {
+    const runtime = new DynamicProviderRuntime({
+      database: createMemoryDatabase(),
+      auth: testAuth(),
+      applicationBaseUrl: "https://hub.test",
+      registrationFactory: ({ provider, configuration }) => {
+        const id = providerConfigurationId(configuration);
+        return {
+          ...connectionRegistration(provider, id),
+          ...(provider === "mattermost"
+            ? {
+                gateway: () => ({
+                  status: "connected" as const,
+                  connectedSince: "2026-08-17T10:00:00.000Z",
+                  lastEventAt: null,
+                  consecutiveFailures: 0,
+                  lastError: id,
+                }),
+              }
+            : {}),
+        };
+      },
+    });
+    // Nothing is published yet, so there is no socket to report on — reporting one would be a lie.
+    assert.equal(runtime.gatewayLiveness("mattermost"), undefined);
+    assert.equal(runtime.gatewayLiveness("slack"), undefined);
+
+    const candidate = await runtime.prepare(
+      "mattermost",
+      providerConfiguration("mattermost", "one"),
+      "https://hub.test",
+      providerIdentity("mattermost", "one"),
+      1,
+    );
+    candidate.publish();
+
+    assert.equal(runtime.gatewayLiveness("mattermost")?.status, "connected");
+    // Webhook providers hold no socket, so they must report nothing rather than a default.
+    assert.equal(runtime.gatewayLiveness("github"), undefined);
+  });
 });
 
 function providerConfiguration(provider: Provider, id: string): ProviderApplicationConfiguration {
@@ -608,6 +754,8 @@ function providerConfiguration(provider: Provider, id: string): ProviderApplicat
   if (provider === "linear") {
     return { provider, clientId: id, clientSecret: "secret", webhookSecret: "webhook" };
   }
+  if (provider === "mattermost")
+    return { provider, serverUrl: `https://${id}.example.com`, botToken: "token" };
   return { provider, applicationId: id, clientSecret: "secret", botToken: "token" };
 }
 
@@ -620,6 +768,7 @@ function providerConfigurationId(configuration: ProviderApplicationConfiguration
   if (configuration.provider === "github") return configuration.appId;
   if (configuration.provider === "slack") return configuration.appId;
   if (configuration.provider === "linear") return configuration.clientId;
+  if (configuration.provider === "mattermost") return configuration.serverUrl;
   return configuration.applicationId;
 }
 

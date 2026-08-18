@@ -2,6 +2,7 @@ import { respondError } from "../contract/respond.js";
 import { respondWithFailure } from "../failures/index.js";
 import { guideFor } from "./guides.js";
 import { ProviderApplicationError, type Provider } from "./index.js";
+import { assertNever } from "../exhaustive.js";
 
 /**
  * Every way saving an app can fail, said the same way twice over: what happened, then the exact
@@ -13,11 +14,13 @@ export function providerApplicationSaveFailure(
   provider: Provider,
   error: unknown,
   scrubValues: readonly string[] = [],
-  operation = "provider_application.verify_and_save",
+  context: { host?: string; operation?: string } = {},
 ): ReturnType<typeof respondError> {
+  const host = providerHost(provider, context.host);
   const name = providerName(provider);
   const code = errorCode(error);
   const gateway = discordGatewayDiagnostic(error);
+  const operation = context.operation ?? "provider_application.verify_and_save";
   const report = { operation, component: "provider_applications", provider } as const;
 
   if ((provider === "slack" || provider === "linear") && code === "httpsRequired") {
@@ -102,8 +105,8 @@ export function providerApplicationSaveFailure(
       authentication: `Your session has expired. Nothing was saved. Sign in again, then verify again.`,
       credentialsRejected: credentialMessage(provider, errorContext(error)),
       permissionMissing: `${name} accepted the credentials but the ${applicationNoun(provider)} is missing a permission Hub needs. Nothing was saved. Grant every permission listed in the setup steps, then verify again.`,
-      network: `Hub couldn't reach ${name}. Nothing was saved. Check this server's network, DNS, and TLS access to ${providerHost(provider)}, then verify again.`,
-      timeout: `${name} didn't answer in time. Nothing was saved. Check this server's connection to ${providerHost(provider)}, then verify again.`,
+      network: `Hub couldn't reach ${name}. Nothing was saved. Check this server's network, DNS, and TLS access to ${host}, then verify again.`,
+      timeout: `${name} didn't answer in time. Nothing was saved. Check this server's connection to ${host}, then verify again.`,
       rateLimited: `${name} is rate limiting Hub. Nothing was saved. Wait a few minutes, then verify again.`,
       upstreamUnavailable: `${name} returned an error of its own. Nothing was saved. Check ${name}'s status page, then verify again.`,
       conflict: `The ${name} app changed while it was being saved. Nothing was saved. Reload the page to see the current values, then verify again.`,
@@ -113,23 +116,51 @@ export function providerApplicationSaveFailure(
   );
 }
 
-export function providerHost(provider: Provider): string {
-  if (provider === "github") return "api.github.com";
-  if (provider === "slack") return "slack.com";
-  if (provider === "linear") return "linear.app";
-  return "discord.com";
+/**
+ * Mattermost is the first provider whose host is not a compile-time constant — it is whatever
+ * server the operator configured — so this takes the configured address when one is known and
+ * says so plainly when it is not.
+ */
+export function providerHost(provider: Provider, configuredHost?: string): string {
+  switch (provider) {
+    case "github":
+      return "api.github.com";
+    case "slack":
+      return "slack.com";
+    case "discord":
+      return "discord.com";
+    case "linear":
+      return "linear.app";
+    case "mattermost":
+      return configuredHost === undefined || configuredHost.length === 0
+        ? "your Mattermost server"
+        : configuredHost;
+    default:
+      return assertNever(provider, "providerHost");
+  }
 }
 
 export function providerName(provider: Provider): string {
-  if (provider === "github") return "GitHub";
-  if (provider === "slack") return "Slack";
-  if (provider === "linear") return "Linear";
-  return "Discord";
+  switch (provider) {
+    case "github":
+      return "GitHub";
+    case "slack":
+      return "Slack";
+    case "discord":
+      return "Discord";
+    case "linear":
+      return "Linear";
+    case "mattermost":
+      return "Mattermost";
+    default:
+      return assertNever(provider, "providerName");
+  }
 }
 
 /** GitHub calls it an App, Discord an application, Slack an app. Use each provider's own word. */
 function applicationNoun(provider: Provider): string {
   if (provider === "github") return "App";
+  if (provider === "mattermost") return "bot account";
   return "application";
 }
 
@@ -150,6 +181,15 @@ function credentialMessage(provider: Provider, subject: string | undefined): str
       return "GitHub rejected the Private key for this App. Nothing was saved. Generate a new private key on the App's settings page, paste the whole .pem file, then verify again.";
     }
     return "GitHub rejected these credentials. Nothing was saved. Check the App ID and Private key on the App's settings page, then verify again.";
+  }
+  if (provider === "mattermost") {
+    if (subject === "serverUrl") {
+      return "That is not a usable Mattermost address. Nothing was saved. Enter the address you open Mattermost at, including https://, then verify again.";
+    }
+    if (subject === "botToken") {
+      return "Mattermost rejected the bot access token, or the token does not belong to a bot account. Nothing was saved. Open System Console → Integrations → Bot Accounts, create or re-issue the bot's token, then verify again.";
+    }
+    return "Mattermost rejected these credentials. Nothing was saved. Check the server address and bot access token, then verify again.";
   }
   if (provider === "discord") {
     if (subject === "botToken") {

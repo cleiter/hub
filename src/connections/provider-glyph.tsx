@@ -1,20 +1,24 @@
-import { TerminalIcon } from "lucide-react";
+import { MessagesSquareIcon, TerminalIcon } from "lucide-react";
 
 /**
  * Brand marks for the connection providers. Lucide dropped brand icons, and a generic
  * message or repository icon reads as "some integration" rather than "Discord" or
  * "GitHub" — a provider card is exactly where the mark carries the meaning. "manual"
- * is not a brand, so it gets a plain lucide glyph instead of a drawn mark.
+ * is not a brand, so it gets a plain lucide glyph instead of a drawn mark. Mattermost also
+ * gets a plain glyph rather than a drawn mark: an approximated logo is worse than an honest
+ * generic one, and this file has no verified path for it.
  */
 export function ProviderGlyph({
   provider,
 }: {
-  provider: "github" | "discord" | "slack" | "linear" | "manual";
+  provider: "github" | "discord" | "slack" | "linear" | "mattermost" | "manual";
 }) {
   if (provider === "github") return <GitHubMark />;
   if (provider === "discord") return <DiscordMark />;
   if (provider === "slack") return <SlackMark />;
   if (provider === "linear") return <LinearMark />;
+  if (provider === "mattermost")
+    return <MessagesSquareIcon className="size-4.5" aria-hidden="true" />;
   return <TerminalIcon className="size-4.5" aria-hidden="true" />;
 }
 

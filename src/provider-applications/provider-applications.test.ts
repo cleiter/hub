@@ -3,14 +3,16 @@ import { describe, it } from "vitest";
 import type { AccountAccessValue } from "../auth/organization-access.js";
 import {
   ProviderApplicationError,
+  ProviderConnectionRefusedError,
   activateProviderApplicationsAtStartup,
   createProviderApplications,
   providerApplicationReturnRoute,
+  type Provider,
   type ProviderApplicationConfiguration,
   type ProviderApplicationIdentity,
-  type Provider,
   type ProviderApplicationStore,
   type ProviderRuntimeCandidate,
+  type ProviderConnectionStart,
   type ProviderRuntimeOwner,
 } from "./index.js";
 
@@ -36,6 +38,11 @@ const linearConfiguration: ProviderApplicationConfiguration = {
   clientId: "linear-client",
   clientSecret: "linear-client-secret",
   webhookSecret: "linear-webhook-secret",
+};
+const mattermostConfiguration: ProviderApplicationConfiguration = {
+  provider: "mattermost",
+  serverUrl: "https://mattermost.example.com",
+  botToken: "bot-token",
 };
 
 describe("provider applications", () => {
@@ -527,6 +534,43 @@ describe("provider applications", () => {
     assert.equal(fixture.runtime.latestCandidate("slack")?.closeCount, 1);
   });
 
+  it("completes a gateway connection in the same request instead of handing back a URL", async () => {
+    const fixture = createFixture();
+    await fixture.applications.verifyAndSave(
+      request("POST"),
+      "mattermost",
+      mattermostConfiguration,
+    );
+    fixture.runtime.answerConnectionWith("mattermost", { connected: ["team-a", "team-b"] });
+
+    const started = await fixture.applications.beginConnection(
+      request("POST"),
+      "mattermost",
+      "org",
+    );
+
+    assert.deepEqual(started, { connected: ["team-a", "team-b"] });
+    assert.equal(fixture.runtime.latestCandidate("mattermost")?.closeCount, 1);
+  });
+
+  it("surfaces a provider's connect refusal rather than reporting an internal failure", async () => {
+    const fixture = createFixture();
+    await fixture.applications.verifyAndSave(
+      request("POST"),
+      "mattermost",
+      mattermostConfiguration,
+    );
+    fixture.runtime.refuseConnection("mattermost", "The bot isn't a member of any team yet.");
+
+    await assert.rejects(
+      fixture.applications.beginConnection(request("POST"), "mattermost", "org"),
+      (error: unknown) =>
+        error instanceof ProviderConnectionRefusedError &&
+        error.reason === "The bot isn't a member of any team yet.",
+    );
+    assert.equal(fixture.runtime.latestCandidate("mattermost")?.closeCount, 1);
+  });
+
   it("sends a connection back to the surface it started from, and nowhere else", async () => {
     const fixture = createFixture();
     await fixture.applications.verifyAndSave(request("POST"), "github", githubConfiguration);
@@ -666,7 +710,18 @@ function identityFor(
   if (provider === "github") return github;
   if (provider === "discord") return { provider, id: "100", name: "Paseo" };
   if (provider === "linear") return { provider, id: "linear-client", name: "Paseo" };
+  if (provider === "mattermost") {
+    return { provider, id: "https://mattermost.example.com", name: "paseobot" };
+  }
   return { provider, id: "A1", name: "Paseo" };
+}
+
+/** The one field each provider's configuration is named by, for the fake candidate's id. */
+function configurationIdentifier(configuration: ProviderApplicationConfiguration): string {
+  if (configuration.provider === "discord") return configuration.applicationId;
+  if (configuration.provider === "linear") return configuration.clientId;
+  if (configuration.provider === "mattermost") return configuration.serverUrl;
+  return configuration.appId;
 }
 
 function connectedInventory(applicationId: string) {
@@ -778,6 +833,7 @@ class BlockingRuntime implements ProviderRuntimeOwner {
   private readonly failures = new Set<string>();
   private readonly blocked = new Set<string>();
   private readonly unavailableConnections = new Set<string>();
+  private readonly connectionOutcomes = new Map<string, ProviderConnectionStart | Error>();
   private slackInstallationHandler:
     | Parameters<NonNullable<ProviderRuntimeOwner["onSlackInstallation"]>>[0]
     | undefined;
@@ -821,7 +877,7 @@ class BlockingRuntime implements ProviderRuntimeOwner {
     const candidate = new Candidate(
       provider,
       this,
-      candidateConfigurationId(configuration),
+      configurationIdentifier(configuration),
       configurationVersion,
     );
     const candidates = this.candidates.get(provider) ?? [];
@@ -848,6 +904,19 @@ class BlockingRuntime implements ProviderRuntimeOwner {
 
   preparedVersions(provider: string) {
     return this.candidates.get(provider)?.map((candidate) => candidate.configurationVersion) ?? [];
+  }
+
+  /** What this provider's connect resolves to; the default is an OAuth redirect. */
+  answerConnectionWith(provider: string, start: ProviderConnectionStart) {
+    this.connectionOutcomes.set(provider, start);
+  }
+
+  refuseConnection(provider: string, reason: string) {
+    this.connectionOutcomes.set(provider, new ProviderConnectionRefusedError(reason));
+  }
+
+  connectionOutcome(provider: string): ProviderConnectionStart | Error {
+    return this.connectionOutcomes.get(provider) ?? { url: "https://slack.test/install" };
   }
 
   makeConnectionUnavailable(provider: string) {
@@ -891,7 +960,7 @@ class BlockingRuntime implements ProviderRuntimeOwner {
 class Candidate implements ProviderRuntimeCandidate {
   private unblock: (() => void) | undefined;
   private released = false;
-  readonly beginConnection?: () => Promise<{ url: string }>;
+  readonly beginConnection?: () => Promise<ProviderConnectionStart>;
   closeCount = 0;
 
   constructor(
@@ -901,7 +970,10 @@ class Candidate implements ProviderRuntimeCandidate {
     readonly configurationVersion: number,
   ) {
     if (!owner.connectionUnavailable(provider)) {
-      this.beginConnection = () => Promise.resolve({ url: "https://slack.test/install" });
+      this.beginConnection = () => {
+        const outcome = owner.connectionOutcome(provider);
+        return outcome instanceof Error ? Promise.reject(outcome) : Promise.resolve(outcome);
+      };
     }
   }
 
@@ -930,14 +1002,6 @@ class Candidate implements ProviderRuntimeCandidate {
     this.released = true;
     this.unblock?.();
   }
-}
-
-function candidateConfigurationId(configuration: ProviderApplicationConfiguration): string {
-  if (configuration.provider === "github" || configuration.provider === "slack") {
-    return configuration.appId;
-  }
-  if (configuration.provider === "linear") return configuration.clientId;
-  return configuration.applicationId;
 }
 
 function slackBinding() {

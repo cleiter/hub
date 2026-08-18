@@ -226,7 +226,9 @@ export async function handleConnections(
     | "slackCallback"
     | "linearStart"
     | "linearDisconnect"
-    | "linearCallback",
+    | "linearCallback"
+    | "mattermostStart"
+    | "mattermostDisconnect",
 ): Promise<Response> {
   const runtime = await getApplication();
   if (operation === "status") return runtime.connectionStatus(request);
@@ -248,6 +250,9 @@ const CONNECTION_ACTIONS = {
   linearStart: { provider: "linear", name: "start" },
   linearDisconnect: { provider: "linear", name: "disconnect" },
   linearCallback: { provider: "linear", name: "callback" },
+  // Mattermost has no callback: Hub holds the bot credential, so there is nothing to authorize.
+  mattermostStart: { provider: "mattermost", name: "start" },
+  mattermostDisconnect: { provider: "mattermost", name: "disconnect" },
 } as const;
 
 export async function resolveOrganizationResources(

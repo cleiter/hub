@@ -452,6 +452,12 @@ function connectionUsageView(
       linearOrganizationName: connection.linearOrganizationName,
       requiresReauthorization: linearConnectionRequiresReauthorization(connection),
     })),
+    mattermost: connections.mattermost.map((connection) => ({
+      id: connection.id,
+      slug: connection.slug,
+      teamId: connection.teamId,
+      teamName: connection.teamDisplayName,
+    })),
   };
 }
 

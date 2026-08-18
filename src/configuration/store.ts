@@ -702,6 +702,7 @@ const PROVIDERS_BY_EVENT_PREFIX: ReadonlyMap<string, ConnectionProvider> = new M
     slack: "slack",
     discord: "discord",
     linear: "linear",
+    mattermost: "mattermost",
   } satisfies Record<ConnectionProvider, ConnectionProvider>),
 );
 
@@ -771,6 +772,14 @@ async function resolveResource(
       if (connections.length !== 1) return undefined;
       return { connectionId: connections[0]!.id, resourceId: resource };
     }
+    case "mattermost": {
+      const connection = (
+        await database.organizationConnectionUsage(organizationId)
+      ).mattermost.find(({ id, slug }) => slug === resource && allowedConnectionIds.has(id));
+      return connection === undefined
+        ? undefined
+        : { connectionId: connection.id, resourceId: connection.teamId };
+    }
     default:
       return assertNever(provider, "resolveResource");
   }
@@ -780,7 +789,9 @@ function triggerFilterPath(trigger: CompiledTrigger, field: string): readonly (s
   return [trigger.sourceFile ?? ".paseo/workflows", "filters", field];
 }
 
-function resourceField(provider: ConnectionProvider): "repo" | "workspace" | "guild" | "project" {
+function resourceField(
+  provider: ConnectionProvider,
+): "repo" | "workspace" | "guild" | "project" | "team" {
   switch (provider) {
     case "github":
       return "repo";
@@ -790,6 +801,8 @@ function resourceField(provider: ConnectionProvider): "repo" | "workspace" | "gu
       return "guild";
     case "linear":
       return "project";
+    case "mattermost":
+      return "team";
     default:
       return assertNever(provider, "resourceField");
   }
@@ -805,6 +818,8 @@ function providerLabel(provider: ConnectionProvider): string {
       return "Discord";
     case "linear":
       return "Linear";
+    case "mattermost":
+      return "Mattermost";
     default:
       return assertNever(provider, "providerLabel");
   }

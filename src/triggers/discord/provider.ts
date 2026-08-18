@@ -3,12 +3,7 @@ import type {
   AttachmentCapabilityRegistry,
   AttachmentDescriptor,
 } from "../../attachments/capabilities.js";
-import { reportFailure } from "../../failures/index.js";
-import {
-  type TriggerProvider,
-  type TriggerProviderMatch,
-  type TriggerProviderReactionState,
-} from "../index.js";
+import { type TriggerProvider, type TriggerProviderMatch } from "../index.js";
 import type { DiscordBotClient } from "./bot.js";
 import {
   matchDiscordTriggers,
@@ -16,7 +11,14 @@ import {
   readDiscordPromptBody,
 } from "./match.js";
 import { matchesInputFilters, parseInvocation } from "../invocation.js";
-import { reactionPhase, type ReactionPhase } from "../reactions.js";
+import {
+  addReaction,
+  addReactionSafely,
+  reactionPhase,
+  removeReactionForPhase,
+  replaceReaction,
+  type ReactionPort,
+} from "../reactions.js";
 import { NormalizedDiscordMessageEventSchema } from "./events.js";
 import type { NormalizedDiscordContextMessage, NormalizedDiscordMessageEvent } from "./events.js";
 
@@ -210,30 +212,32 @@ export function createDiscordTriggerProvider(options: {
     },
     async onDispatchAccepted(triggerContext, _outputContext, reactionState) {
       if (reactionPhase(reactionState) !== undefined) return reactionState;
-      await reactSafely(options.bot, triggerContext.target, "eyes");
+      await addReactionSafely(reactionPort(options.bot, triggerContext.target), "eyes");
       return { phase: "accepted" };
     },
     async onAgentExecutionStarted(triggerContext, _outputContext, reactionState) {
       if (reactionPhase(reactionState) === "started") return reactionState;
-      await deleteReactionSafely(options.bot, triggerContext.target, "eyes");
-      await reactSafely(options.bot, triggerContext.target, "hourglass");
+      await replaceReaction(reactionPort(options.bot, triggerContext.target), "eyes", "hourglass");
       return { phase: "started" };
     },
     async onAgentExecutionCompleted(triggerContext, _outputContext, _result, reactionState) {
-      await deleteReactionForPhase(options.bot, triggerContext.target, reactionState, "started");
-      await react(options.bot, triggerContext.target, "white_check_mark");
+      const port = reactionPort(options.bot, triggerContext.target);
+      await removeReactionForPhase(port, reactionState, "started");
+      await addReaction(port, "white_check_mark");
       return null;
     },
     async onAgentExecutionFailed(triggerContext, _outputContext, reason, reactionState) {
-      await deleteReactionForPhase(options.bot, triggerContext.target, reactionState);
-      await react(options.bot, triggerContext.target, "x");
+      const port = reactionPort(options.bot, triggerContext.target);
+      await removeReactionForPhase(port, reactionState);
+      await addReaction(port, "x");
       await postThreadNotice(options.bot, triggerContext.target, `Paseo agent failed: ${reason}`);
       return null;
     },
     async onMachineTerminated(triggerContext, reason, reactionState) {
       if (reason === "launch_failed" || reason === "daemon_disconnected") {
-        await deleteReactionForPhase(options.bot, triggerContext.target, reactionState);
-        await react(options.bot, triggerContext.target, "x");
+        const port = reactionPort(options.bot, triggerContext.target);
+        await removeReactionForPhase(port, reactionState);
+        await addReaction(port, "x");
         await postThreadNotice(
           options.bot,
           triggerContext.target,
@@ -279,23 +283,20 @@ async function materializeReferencedMessage(
   );
 }
 
-async function deleteReactionForPhase(
-  bot: DiscordBotClient,
-  target: DiscordOutputContext,
-  reactionState: TriggerProviderReactionState | undefined,
-  fallbackPhase?: ReactionPhase,
-): Promise<void> {
-  const phase = reactionPhase(reactionState) ?? fallbackPhase;
-  if (phase === "accepted") {
-    await deleteReactionSafely(bot, target, "eyes");
-    return;
-  }
-  if (phase === "started") {
-    await deleteReactionSafely(bot, target, "hourglass");
-    return;
-  }
-  await deleteReactionSafely(bot, target, "eyes");
-  await deleteReactionSafely(bot, target, "hourglass");
+/**
+ * Binds the shared reaction machine to one Discord message. Discord takes literal emoji rather
+ * than names, so the translation happens here and the failure diagnostic reports the translated
+ * value — that is what an operator would see in the Discord API log.
+ */
+function reactionPort(bot: DiscordBotClient, event: DiscordOutputContext): ReactionPort {
+  const scope = { channelId: event.channelId, messageId: event.messageId };
+  return {
+    provider: "discord",
+    emoji: { accepted: "eyes", started: "hourglass" },
+    add: (name) => bot.createReaction({ ...scope, emoji: toDiscordReactionEmoji(name) }),
+    remove: (name) => bot.deleteOwnReaction({ ...scope, emoji: toDiscordReactionEmoji(name) }),
+    diagnostic: (name) => ({ ...scope, emoji: toDiscordReactionEmoji(name) }),
+  };
 }
 
 function buildDiscordMergeData(
@@ -427,65 +428,6 @@ function buildDiscordMessageUrl(event: NormalizedDiscordMessageEvent): string {
 
 function buildDiscordContextUrl(event: NormalizedDiscordMessageEvent): string {
   return `https://discord.com/channels/${event.guildId}/${event.threadId ?? event.channelId}`;
-}
-
-async function reactSafely(
-  bot: DiscordBotClient,
-  event: DiscordOutputContext,
-  emoji: string,
-): Promise<void> {
-  const discordEmoji = toDiscordReactionEmoji(emoji);
-  try {
-    await bot.createReaction({
-      channelId: event.channelId,
-      messageId: event.messageId,
-      emoji: discordEmoji,
-    });
-  } catch (error) {
-    reportFailure(
-      error,
-      { operation: "discord.reaction.add", component: "triggers", provider: "discord" },
-      {
-        diagnostic: { channelId: event.channelId, messageId: event.messageId, emoji: discordEmoji },
-      },
-    );
-  }
-}
-
-async function react(
-  bot: DiscordBotClient,
-  event: DiscordOutputContext,
-  emoji: string,
-): Promise<void> {
-  await bot.createReaction({
-    channelId: event.channelId,
-    messageId: event.messageId,
-    emoji: toDiscordReactionEmoji(emoji),
-  });
-}
-
-async function deleteReactionSafely(
-  bot: DiscordBotClient,
-  event: DiscordOutputContext,
-  emoji: string,
-): Promise<void> {
-  const discordEmoji = toDiscordReactionEmoji(emoji);
-
-  try {
-    await bot.deleteOwnReaction({
-      channelId: event.channelId,
-      messageId: event.messageId,
-      emoji: discordEmoji,
-    });
-  } catch (error) {
-    reportFailure(
-      error,
-      { operation: "discord.reaction.cleanup", component: "triggers", provider: "discord" },
-      {
-        diagnostic: { channelId: event.channelId, messageId: event.messageId, emoji: discordEmoji },
-      },
-    );
-  }
 }
 
 function toDiscordReactionEmoji(emoji: string): string {

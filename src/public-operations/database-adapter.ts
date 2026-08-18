@@ -38,6 +38,10 @@ export function createDatabasePublicOperationRepository(
           slug,
           organizationName: linearOrganizationName,
         })),
+        mattermost: connections.mattermost.map(({ slug, teamDisplayName }) => ({
+          slug,
+          teamName: teamDisplayName,
+        })),
       };
     },
     async listSetupResources(organizationId) {

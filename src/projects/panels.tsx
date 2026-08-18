@@ -1,4 +1,5 @@
 /* oxlint-disable eslint-plugin-react-perf/jsx-no-new-array-as-prop, eslint-plugin-react-perf/jsx-no-new-function-as-prop, eslint-plugin-react-perf/jsx-no-new-object-as-prop, eslint-plugin-react-perf/jsx-no-jsx-as-prop, typescript-eslint/no-unsafe-type-assertion -- route links and mutation controls are intentionally scoped to each rendered tenant snapshot */
+import { assertNever } from "../exhaustive.js";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
@@ -31,8 +32,10 @@ import {
   disconnectConnection,
   startConnection,
   type ConnectionDisconnectResult,
+  type ConnectionProvider,
   type ConnectionStatus,
 } from "../connections/functions.js";
+import { refreshConnections } from "../connections/status.js";
 import { useRouteTenant } from "./context.js";
 import type { ProjectDashboard } from "./dashboard.js";
 import {
@@ -108,19 +111,29 @@ export function OrganizationConnectionsPanel() {
   );
   if (!status.ok) return status.element;
   const data = snapshot.data;
-  const connectProvider = (provider: "github" | "discord" | "slack" | "linear") => {
+  const connectProvider = (provider: ConnectionProvider) => {
     connect.mutate(
       { data: { ...scope, provider } },
       {
         onSuccess: (response) => {
-          if (response.status === "ok") window.location.assign(response.data.url);
+          if (response.status !== "ok") return;
+          // Mattermost completes in the same request instead of redirecting to a provider.
+          if ("url" in response.data) {
+            window.location.assign(response.data.url);
+            return;
+          }
+          setReturned({ provider, result: `${provider}_connected` });
+          void Promise.all([
+            invalidateOrganization(queryClient, scope.organizationSlug),
+            refreshConnections(queryClient, tenant.account.id, tenant.organization.id),
+          ]);
         },
       },
     );
   };
   const rows = connectionRows(data);
   const busy = connect.isPending || disconnect.isPending;
-  const connectionActionLabel = (provider: "github" | "discord" | "slack" | "linear") => {
+  const connectionActionLabel = (provider: ConnectionProvider) => {
     if (
       (provider === "slack" || provider === "linear") &&
       status.data[provider].status === "requiresReauthorization"
@@ -205,8 +218,8 @@ export function OrganizationConnectionsPanel() {
           ))}
         </DataTable>
         {data.capabilities.manageResources ? (
-          <div className="grid gap-2 sm:grid-cols-4">
-            {(["github", "discord", "slack", "linear"] as const).map((provider) => (
+          <div className="grid gap-2 sm:grid-cols-5">
+            {(["github", "discord", "slack", "linear", "mattermost"] as const).map((provider) => (
               <div
                 key={provider}
                 className="flex items-center justify-between gap-2 rounded-md border p-3"
@@ -280,10 +293,11 @@ export function ProjectOverviewPanel() {
             data.connections.github.length +
               data.connections.discord.length +
               data.connections.slack.length +
-              data.connections.linear.length >
+              data.connections.linear.length +
+              data.connections.mattermost.length >
             0
           }
-          detail={`${String(data.connections.github.length + data.connections.discord.length + data.connections.slack.length + data.connections.linear.length)} organization connections`}
+          detail={`${String(data.connections.github.length + data.connections.discord.length + data.connections.slack.length + data.connections.linear.length + data.connections.mattermost.length)} organization connections`}
         />
       </div>
       <Section
@@ -626,6 +640,13 @@ function connectionRows(data: OrganizationSnapshot) {
       externalId: `guild ${connection.guildId}`,
       status: "connected" as const,
     })),
+    ...data.connections.mattermost.map((connection) => ({
+      provider: "mattermost" as const,
+      id: connection.id,
+      name: connection.slug,
+      externalId: `team ${connection.teamId}`,
+      status: "connected" as const,
+    })),
     ...data.connections.slack.map((connection) => ({
       provider: "slack" as const,
       id: connection.id,
@@ -654,7 +675,7 @@ function UnconfiguredProvider({
   provider,
   operator,
 }: {
-  provider: "github" | "discord" | "slack" | "linear";
+  provider: ConnectionProvider;
   operator: boolean;
 }) {
   if (!operator) return <StatusPill tone="neutral">Not configured</StatusPill>;
@@ -665,10 +686,21 @@ function UnconfiguredProvider({
   );
 }
 
-function providerLabel(provider: "github" | "discord" | "slack" | "linear") {
-  if (provider === "github") return "GitHub";
-  if (provider === "discord") return "Discord";
-  return provider === "slack" ? "Slack" : "Linear";
+function providerLabel(provider: ConnectionProvider): string {
+  switch (provider) {
+    case "github":
+      return "GitHub";
+    case "discord":
+      return "Discord";
+    case "slack":
+      return "Slack";
+    case "linear":
+      return "Linear";
+    case "mattermost":
+      return "Mattermost";
+    default:
+      return assertNever(provider, "providerLabel");
+  }
 }
 
 function statusLabel(status: string): string {
