@@ -45,7 +45,7 @@
     "format:check:files": "oxfmt --check",
     "lint": "npm run lint:node && npm run lint:start",
     "lint:node": "oxlint --config oxlint.json --tsconfig tsconfig.json --ignore-pattern '**/*.tsx' --ignore-pattern '**/*.mjs' src",
-    "lint:start": "oxlint --config oxlint.json --tsconfig tsconfig.start.json --ignore-pattern '**/*.mjs' src vite.config.ts drizzle.config.ts",
+    "lint:start": "oxlint --config oxlint.json --tsconfig tsconfig.start.json --ignore-pattern '**/*.mjs' --ignore-pattern 'e2e/**' src vite.config.ts drizzle.config.ts",
     "lint:fix": "npm run lint:node -- --fix && npm run lint:start -- --fix",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:generate": "drizzle-kit generate",
