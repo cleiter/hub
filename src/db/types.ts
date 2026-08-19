@@ -19,7 +19,7 @@ export type WorkflowDeadlineKind = "step_hard" | "step_idle" | "whole_run";
 export interface ProviderEventReceiptRecord {
   id: string;
   organizationId: string;
-  provider: "github" | "slack" | "discord" | "linear" | "mattermost" | "manual" | "schedule";
+  provider: ConnectionProvider | "manual" | "schedule";
   connectionId: string | null;
   resourceId: string | null;
   deliveryId: string;

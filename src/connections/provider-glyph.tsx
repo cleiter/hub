@@ -1,4 +1,5 @@
 import { MessagesSquareIcon, TerminalIcon, ClockIcon } from "lucide-react";
+import { assertNever } from "../exhaustive.js";
 
 /**
  * Brand marks for the connection providers. Lucide dropped brand icons, and a generic
@@ -13,14 +14,24 @@ export function ProviderGlyph({
 }: {
   provider: "github" | "discord" | "slack" | "linear" | "mattermost" | "manual" | "schedule";
 }) {
-  if (provider === "schedule") return <ClockIcon className="size-4.5" aria-hidden="true" />;
-  if (provider === "github") return <GitHubMark />;
-  if (provider === "discord") return <DiscordMark />;
-  if (provider === "slack") return <SlackMark />;
-  if (provider === "linear") return <LinearMark />;
-  if (provider === "mattermost")
-    return <MessagesSquareIcon className="size-4.5" aria-hidden="true" />;
-  return <TerminalIcon className="size-4.5" aria-hidden="true" />;
+  switch (provider) {
+    case "github":
+      return <GitHubMark />;
+    case "discord":
+      return <DiscordMark />;
+    case "slack":
+      return <SlackMark />;
+    case "linear":
+      return <LinearMark />;
+    case "mattermost":
+      return <MessagesSquareIcon className="size-4.5" aria-hidden="true" />;
+    case "schedule":
+      return <ClockIcon className="size-4.5" aria-hidden="true" />;
+    case "manual":
+      return <TerminalIcon className="size-4.5" aria-hidden="true" />;
+    default:
+      return assertNever(provider, "ProviderGlyph");
+  }
 }
 
 function GitHubMark() {

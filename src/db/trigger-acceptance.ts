@@ -3,12 +3,14 @@ import { linearConnectionRequiresReauthorization } from "../providers/linear/cli
 import type { DrizzleHandle } from "./runtime/index.js";
 import * as schema from "./schema.js";
 import { ConnectionRepository } from "./connections.js";
+import { assertNever } from "../exhaustive.js";
 import type {
   AcceptDiscordEventInput,
   AcceptGitHubEventInput,
   AcceptLinearEventInput,
   AcceptMattermostEventInput,
   AcceptSlackEventInput,
+  ConnectionProvider,
   GitHubLifecycleReceiptClaim,
   GitHubLifecycleReceiptClaimInput,
   GitHubLifecycleResult,
@@ -51,7 +53,7 @@ export class ProviderEventAcceptanceRepository {
   }
 
   private async acceptProvider(
-    provider: "github" | "slack" | "discord" | "linear" | "mattermost",
+    provider: ConnectionProvider,
     externalId: number | string,
     resourceId: number | string | undefined,
     input: ProviderEventEvidence,
@@ -445,73 +447,81 @@ function selectFirstRoutePerProject<Route extends { projectId: string }>(
  */
 async function findConnection(
   transaction: HubTransaction,
-  provider: "github" | "slack" | "discord" | "linear" | "mattermost",
+  provider: ConnectionProvider,
   externalId: number | string,
 ) {
-  if (provider === "mattermost") {
-    const [row] = await transaction
-      .select({
-        id: schema.mattermostConnections.id,
-        organizationId: schema.mattermostConnections.organizationId,
-      })
-      .from(schema.mattermostConnections)
-      .where(eq(schema.mattermostConnections.teamId, String(externalId)))
-      .limit(1);
-    return row;
+  switch (provider) {
+    case "github": {
+      const [row] = await transaction
+        .select({
+          id: schema.githubConnections.id,
+          organizationId: schema.githubConnections.organizationId,
+          status: schema.githubConnections.status,
+        })
+        .from(schema.githubConnections)
+        .where(eq(schema.githubConnections.installationId, Number(externalId)))
+        .limit(1);
+      return row;
+    }
+    case "slack": {
+      const [row] = await transaction
+        .select({
+          id: schema.slackConnections.id,
+          organizationId: schema.slackConnections.organizationId,
+        })
+        .from(schema.slackConnections)
+        .where(eq(schema.slackConnections.teamId, String(externalId)))
+        .limit(1);
+      return row;
+    }
+    case "discord": {
+      const [row] = await transaction
+        .select({
+          id: schema.discordConnections.id,
+          organizationId: schema.discordConnections.organizationId,
+        })
+        .from(schema.discordConnections)
+        .where(eq(schema.discordConnections.guildId, String(externalId)))
+        .limit(1);
+      return row;
+    }
+    case "linear": {
+      const [row] = await transaction
+        .select({
+          id: schema.linearConnections.id,
+          organizationId: schema.linearConnections.organizationId,
+          scopes: schema.linearConnections.scopes,
+          refreshToken: schema.linearConnections.refreshToken,
+          accessTokenExpiresAt: schema.linearConnections.accessTokenExpiresAt,
+        })
+        .from(schema.linearConnections)
+        .where(eq(schema.linearConnections.linearOrganizationId, String(externalId)))
+        .limit(1);
+      return row;
+    }
+    case "mattermost": {
+      const [row] = await transaction
+        .select({
+          id: schema.mattermostConnections.id,
+          organizationId: schema.mattermostConnections.organizationId,
+        })
+        .from(schema.mattermostConnections)
+        .where(eq(schema.mattermostConnections.teamId, String(externalId)))
+        .limit(1);
+      return row;
+    }
+    // A provider added to the union without a lookup above is a compile error here. Without it the
+    // final `else` silently resolved every unknown provider against `discord_connections`.
+    default:
+      return assertNever(provider, "findConnection");
   }
-  if (provider === "github") {
-    const [row] = await transaction
-      .select({
-        id: schema.githubConnections.id,
-        organizationId: schema.githubConnections.organizationId,
-        status: schema.githubConnections.status,
-      })
-      .from(schema.githubConnections)
-      .where(eq(schema.githubConnections.installationId, Number(externalId)))
-      .limit(1);
-    return row;
-  }
-  if (provider === "slack") {
-    const [row] = await transaction
-      .select({
-        id: schema.slackConnections.id,
-        organizationId: schema.slackConnections.organizationId,
-      })
-      .from(schema.slackConnections)
-      .where(eq(schema.slackConnections.teamId, String(externalId)))
-      .limit(1);
-    return row;
-  }
-  if (provider === "linear") {
-    const [row] = await transaction
-      .select({
-        id: schema.linearConnections.id,
-        organizationId: schema.linearConnections.organizationId,
-        scopes: schema.linearConnections.scopes,
-        refreshToken: schema.linearConnections.refreshToken,
-        accessTokenExpiresAt: schema.linearConnections.accessTokenExpiresAt,
-      })
-      .from(schema.linearConnections)
-      .where(eq(schema.linearConnections.linearOrganizationId, String(externalId)))
-      .limit(1);
-    return row;
-  }
-  const [row] = await transaction
-    .select({
-      id: schema.discordConnections.id,
-      organizationId: schema.discordConnections.organizationId,
-    })
-    .from(schema.discordConnections)
-    .where(eq(schema.discordConnections.guildId, String(externalId)))
-    .limit(1);
-  return row;
 }
 
 async function claimProviderReceipt(
   transaction: HubTransaction,
   input: {
     organizationId: string;
-    provider: "github" | "slack" | "discord" | "linear" | "mattermost" | "manual";
+    provider: ConnectionProvider | "manual";
     connectionId: string | null;
     resourceId: string | null;
     input: ProviderEventEvidence;
