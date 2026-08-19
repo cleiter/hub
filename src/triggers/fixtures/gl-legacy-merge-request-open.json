@@ -1,0 +1,12 @@
+{
+  "object_kind": "merge_request",
+  "user": { "name": "Legacy Runner", "username": "legacy" },
+  "project": { "id": 4242, "path_with_namespace": "acme/backend" },
+  "object_attributes": {
+    "id": 99,
+    "iid": 7,
+    "title": "Older instance payload",
+    "description": "/review no web_url, no event_type, no user id",
+    "action": "open"
+  }
+}

@@ -5,6 +5,12 @@ import type { AuthServer } from "../auth/server.js";
 import { ConnectionAccessDeniedError, ConnectionConflictError } from "../db/errors.js";
 import type {
   ConnectionAccountAccess,
+  /**
+   * The stored provider union, which includes GitLab. Distinct from the redirect-flow union
+   * below: GitLab connections are created directly and never come back through a provider
+   * redirect, so they can fail an action without ever having a return to render.
+   */
+  ConnectionProvider as StoredConnectionProvider,
   ConnectionStartAuthority,
   Database,
   TenantRouteAccess,
@@ -183,8 +189,8 @@ export function connectionCallbackFailure(input: {
 
 export function connectionActionFailure(
   error: unknown,
-  provider: ConnectionProvider,
-  action: "start" | "disconnect",
+  provider: StoredConnectionProvider,
+  action: "start" | "disconnect" | "create" | "rotate",
 ): Response {
   const accessDenied =
     error instanceof ConnectionAccessDeniedError || error instanceof ProductRequestError;

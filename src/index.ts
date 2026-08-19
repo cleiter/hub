@@ -21,6 +21,7 @@ import { loadBuiltStartServer } from "./server/build.js";
 import { createAuthServer } from "./auth/server.js";
 import { startApplication, stopApplication, type ApplicationRuntime } from "./server/runtime.js";
 import { createApplicationRuntime } from "./application-runtime.js";
+import { createGitLabRegistration } from "./providers/gitlab/index.js";
 import {
   composeBilling,
   createStripeBillingClient,
@@ -157,7 +158,12 @@ async function createProductionRuntime(): Promise<ApplicationRuntime> {
       auth,
       entitlements: entitlements.service,
       billing,
-      registrations: providerRuntime.registrations(),
+      registrations: [
+        ...providerRuntime.registrations(),
+        // GitLab has no instance-wide credentials to configure, so it is always registered rather
+        // than gated on a provider application the operator has to set up first.
+        createGitLabRegistration({ database, auth, publicBaseUrl: identity.appUrl }),
+      ],
       providerApplications,
       publicBaseUrl: identity.appUrl,
       completionTokenSecret: identity.authSecret,

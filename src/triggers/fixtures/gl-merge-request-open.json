@@ -1,0 +1,25 @@
+{
+  "object_kind": "merge_request",
+  "event_type": "merge_request",
+  "user": { "id": 41, "name": "Alice Example", "username": "alice", "email": "[REDACTED]" },
+  "project": {
+    "id": 4242,
+    "name": "backend",
+    "path_with_namespace": "acme/backend",
+    "web_url": "https://gitlab.example.com/acme/backend",
+    "default_branch": "main"
+  },
+  "object_attributes": {
+    "id": 99,
+    "iid": 7,
+    "title": "Cache the project lookup",
+    "description": "/review please check the invalidation path",
+    "state": "opened",
+    "action": "open",
+    "source_branch": "cache-project-lookup",
+    "target_branch": "main",
+    "url": "https://gitlab.example.com/acme/backend/-/merge_requests/7"
+  },
+  "labels": [],
+  "repository": { "name": "backend", "url": "git@gitlab.example.com:acme/backend.git" }
+}

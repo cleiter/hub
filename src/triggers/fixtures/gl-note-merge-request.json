@@ -1,0 +1,23 @@
+{
+  "object_kind": "note",
+  "event_type": "note",
+  "user": { "id": 41, "name": "Alice Example", "username": "alice" },
+  "project": {
+    "id": 4242,
+    "path_with_namespace": "acme/backend",
+    "web_url": "https://gitlab.example.com/acme/backend"
+  },
+  "object_attributes": {
+    "id": 1301,
+    "note": "/review take another look at the retry loop",
+    "noteable_type": "MergeRequest",
+    "url": "https://gitlab.example.com/acme/backend/-/merge_requests/7#note_1301"
+  },
+  "merge_request": {
+    "id": 99,
+    "iid": 7,
+    "title": "Cache the project lookup",
+    "source_branch": "cache-project-lookup",
+    "target_branch": "main"
+  }
+}

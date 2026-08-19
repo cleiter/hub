@@ -1,0 +1,20 @@
+{
+  "object_kind": "issue",
+  "event_type": "issue",
+  "user": { "id": 42, "name": "Bob Example", "username": "bob" },
+  "project": {
+    "id": 4242,
+    "path_with_namespace": "acme/backend",
+    "web_url": "https://gitlab.example.com/acme/backend"
+  },
+  "object_attributes": {
+    "id": 501,
+    "iid": 12,
+    "title": "Timeouts on the nightly import",
+    "description": "/triage the importer times out after the third batch",
+    "state": "opened",
+    "action": "open",
+    "url": "https://gitlab.example.com/acme/backend/-/issues/12"
+  },
+  "labels": []
+}
