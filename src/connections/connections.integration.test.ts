@@ -934,6 +934,7 @@ async function resolution(
     slack: [],
     linear: [],
     mattermost: [],
+    gitlab: [],
   });
   assert(status !== null && typeof status === "object" && "status" in status);
   if (status.status === "suspended") return { status: "suspended" as const };

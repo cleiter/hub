@@ -77,6 +77,7 @@ describe("Discord registration", () => {
         slack: [],
         linear: [],
         mattermost: [],
+        gitlab: [],
       }),
       {
         status: "notConfigured",

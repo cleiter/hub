@@ -351,6 +351,13 @@
       "when": 1789976510414,
       "tag": "0049_mattermost_provider",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1789976685147,
+      "tag": "0050_gitlab_connections",
+      "breakpoints": true
     }
   ]
 }

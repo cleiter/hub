@@ -728,6 +728,7 @@ const PROVIDERS_BY_EVENT_PREFIX: ReadonlyMap<string, ConnectionProvider> = new M
     discord: "discord",
     linear: "linear",
     mattermost: "mattermost",
+    gitlab: "gitlab",
   } satisfies Record<ConnectionProvider, ConnectionProvider>),
 );
 
@@ -740,6 +741,10 @@ function readAuthoredResource(
   filters: CompiledTrigger["filters"] | undefined,
 ): string | undefined {
   if (filters === undefined) return undefined;
+  // GitLab has no compile-time resource. `filters.project` names a project path, and resolving it
+  // to a stable id would need a GitLab API token Hub does not hold, so the trigger routes per
+  // connection and the project check waits until match time.
+  if (provider === "gitlab") return undefined;
   // Reads the same provider→filter-key mapping the authoring errors quote, rather than keeping a
   // second copy of it that can drift.
   const value = filters[resourceField(provider)];
@@ -805,6 +810,10 @@ async function resolveResource(
         ? undefined
         : { connectionId: connection.id, resourceId: connection.teamId };
     }
+    case "gitlab":
+      // Unreachable in practice: `readAuthoredResource` never reports a GitLab resource, so
+      // compilation never asks for one to be resolved.
+      return undefined;
     default:
       return assertNever(provider, "resolveResource");
   }
@@ -825,6 +834,7 @@ function resourceField(
     case "discord":
       return "guild";
     case "linear":
+    case "gitlab":
       return "project";
     case "mattermost":
       return "team";
@@ -845,6 +855,8 @@ function providerLabel(provider: ConnectionProvider): string {
       return "Linear";
     case "mattermost":
       return "Mattermost";
+    case "gitlab":
+      return "GitLab";
     default:
       return assertNever(provider, "providerLabel");
   }

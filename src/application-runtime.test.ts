@@ -195,6 +195,7 @@ describe("application runtime provider composition", () => {
       slack: [],
       linear: [],
       mattermost: [],
+      gitlab: [],
     });
     const registration: ProviderRegistration = {
       ...fakeRegistration("github"),

@@ -85,6 +85,7 @@ describe("Slack registration", () => {
         slack: [],
         linear: [],
         mattermost: [],
+        gitlab: [],
       }),
       {
         status: "notConfigured",
@@ -291,6 +292,7 @@ describe("Slack registration", () => {
       registration.connection.status({
         github: [],
         discord: [],
+        gitlab: [],
         slack: [
           {
             id: "slack-connection",

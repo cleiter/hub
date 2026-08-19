@@ -268,6 +268,7 @@ export interface OrganizationConnectionUsage {
   slack: SlackConnectionRecord[];
   linear: LinearConnectionRecord[];
   mattermost: MattermostConnectionRecord[];
+  gitlab: GitLabConnectionRecord[];
 }
 
 export interface GitHubRepositoryRecord {
@@ -370,6 +371,13 @@ export interface PendingProjectTriggerMigration {
  */
 export type ConnectionProvider = (typeof CONNECTION_PROVIDERS)[number];
 
+/**
+ * The providers bound through a redirect-based authorization attempt. GitLab is excluded on
+ * purpose: its connections are created directly with a Hub-generated token, so there is no
+ * external authorization round trip to track and no attempt row to advance.
+ */
+export type ConnectionAttemptProvider = Exclude<ConnectionProvider, "gitlab">;
+
 export type ConnectionAttemptPhase =
   | "github_setup"
   | "github_user_authorization"
@@ -391,7 +399,7 @@ export interface ConnectionStartAuthority extends ConnectionAccountAccess {
 
 export interface ConnectionAttemptRecord {
   id: string;
-  provider: ConnectionProvider;
+  provider: ConnectionAttemptProvider;
   phase: ConnectionAttemptPhase;
   organizationId: string;
   returnRoute: string;
@@ -436,6 +444,20 @@ export interface DiscordConnectionRecord {
   guildId: string;
   guildName: string;
   providerApplicationId: string | null;
+}
+
+/**
+ * A GitLab connection carries no token here on purpose: the secret is only ever readable at the
+ * moment it is generated. Everything after that compares against the stored hash.
+ */
+export interface GitLabConnectionRecord {
+  id: string;
+  organizationId: string;
+  slug: string;
+  label: string;
+  /** Display only — see the column comment on `gitlabConnections.baseUrl`. */
+  baseUrl: string;
+  createdAt: Date;
 }
 
 export interface SlackConnectionRecord {
@@ -483,7 +505,7 @@ export interface MattermostConnectionRecord {
 }
 
 export interface StartConnectionAttemptInput {
-  provider: ConnectionProvider;
+  provider: ConnectionAttemptProvider;
   stateVerifier: string;
   access: ConnectionStartAuthority;
   lifetimeMinutes: number;
@@ -587,6 +609,7 @@ export type LinearConnectionRefreshOperation<T> = (
 
 export type DisconnectConnectionResult =
   | { provider: "github" }
+  | { provider: "gitlab" }
   | { provider: "discord"; guildId: string | undefined }
   | {
       provider: "slack";
@@ -677,6 +700,31 @@ export interface AcceptLinearEventInput extends ProviderEventEvidence {
 
 export interface AcceptMattermostEventInput extends ProviderEventEvidence {
   teamId: string;
+}
+
+/**
+ * GitLab identifies the connection by the id in the webhook URL rather than by anything in the
+ * payload, because a self-managed instance has no stable installation-style identifier to bind on.
+ * `projectId` is GitLab's numeric project id, stored as the receipt's resource id.
+ */
+export interface AcceptGitLabEventInput extends ProviderEventEvidence {
+  connectionId: string;
+  projectId: number;
+}
+
+export interface CreateGitLabConnectionInput {
+  organizationId: string;
+  slug: string;
+  label: string;
+  baseUrl: string;
+  tokenHash: string;
+  createdByUserId: string | null;
+}
+
+export interface RotateGitLabConnectionTokenInput {
+  organizationId: string;
+  connectionId: string;
+  tokenHash: string;
 }
 
 export interface PersistManualEventInput extends InsertProviderEventInput {
@@ -1306,6 +1354,7 @@ export interface Database {
   acceptSlackEvent(input: AcceptSlackEventInput): Promise<ProviderEventAcceptance>;
   acceptLinearEvent(input: AcceptLinearEventInput): Promise<ProviderEventAcceptance>;
   acceptMattermostEvent(input: AcceptMattermostEventInput): Promise<ProviderEventAcceptance>;
+  acceptGitLabEvent(input: AcceptGitLabEventInput): Promise<ProviderEventAcceptance>;
   persistManualEvent(input: PersistManualEventInput): Promise<ManualEventPersistence>;
   claimGitHubLifecycleReceipt(
     input: GitHubLifecycleReceiptClaimInput,
@@ -1631,6 +1680,15 @@ export interface Database {
   findDiscordConnection(guildId: string): Promise<DiscordConnectionRecord | undefined>;
   findSlackConnection(teamId: string): Promise<SlackConnectionRecord | undefined>;
   findLinearConnection(linearOrganizationId: string): Promise<LinearConnectionRecord | undefined>;
+  createGitLabConnection(input: CreateGitLabConnectionInput): Promise<GitLabConnectionRecord>;
+  rotateGitLabConnectionToken(input: RotateGitLabConnectionTokenInput): Promise<boolean>;
+  /**
+   * Returns the stored token hash alongside the record so the webhook path can authenticate in a
+   * single lookup. Callers outside that path should use `organizationConnectionUsage`.
+   */
+  findGitLabConnectionSecret(
+    connectionId: string,
+  ): Promise<{ connection: GitLabConnectionRecord; tokenHash: string } | undefined>;
   findSlackConnectionForOrganization(
     organizationId: string,
     teamId: string,

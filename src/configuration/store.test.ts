@@ -106,7 +106,14 @@ describe("ProjectConfigurationStore resource compilation", () => {
     await enrollTestDaemon(database);
     const connections = [primary, secondary];
     database.organizationConnectionUsage = () =>
-      Promise.resolve({ github: [], slack: [], discord: connections, linear: [], mattermost: [] });
+      Promise.resolve({
+        github: [],
+        slack: [],
+        discord: connections,
+        linear: [],
+        mattermost: [],
+        gitlab: [],
+      });
     const project = await database.createProject({
       organizationId: "org_1",
       name: "Guild project",
@@ -149,7 +156,14 @@ describe("ProjectConfigurationStore resource compilation", () => {
     const database = createMemoryDatabase();
     await enrollTestDaemon(database);
     database.organizationConnectionUsage = () =>
-      Promise.resolve({ github: [], slack: [], discord: [], linear: [linear], mattermost: [] });
+      Promise.resolve({
+        github: [],
+        slack: [],
+        discord: [],
+        linear: [linear],
+        mattermost: [],
+        gitlab: [],
+      });
     database.findLinearConnection = async (linearOrganizationId) =>
       linearOrganizationId === linear.linearOrganizationId ? linear : undefined;
     const project = await database.createProject({
@@ -290,6 +304,7 @@ describe("ProjectConfigurationStore resource compilation", () => {
         discord: [primary, secondary],
         linear: [],
         mattermost: [],
+        gitlab: [],
       });
     const project = await database.createProject({
       organizationId: "org_1",
@@ -312,7 +327,14 @@ describe("ProjectConfigurationStore resource compilation", () => {
     const database = createMemoryDatabase();
     await enrollTestDaemon(database);
     database.organizationConnectionUsage = () =>
-      Promise.resolve({ github: [], slack: [], discord: [primary], linear: [], mattermost: [] });
+      Promise.resolve({
+        github: [],
+        slack: [],
+        discord: [primary],
+        linear: [],
+        mattermost: [],
+        gitlab: [],
+      });
     const project = await database.createProject({
       organizationId: "org_1",
       name: "Unknown connection project",
@@ -343,7 +365,14 @@ describe("ProjectConfigurationStore resource compilation", () => {
     const database = createMemoryDatabase();
     await enrollTestDaemon(database);
     database.organizationConnectionUsage = () =>
-      Promise.resolve({ github: [], slack: [], discord: [primary], linear: [], mattermost: [] });
+      Promise.resolve({
+        github: [],
+        slack: [],
+        discord: [primary],
+        linear: [],
+        mattermost: [],
+        gitlab: [],
+      });
     const project = await database.createProject({
       organizationId: "org_1",
       name: "Unknown guild project",
@@ -423,7 +452,14 @@ describe("ProjectConfigurationStore resource compilation", () => {
     const database = createMemoryDatabase();
     await enrollTestDaemon(database);
     database.organizationConnectionUsage = () =>
-      Promise.resolve({ github: [], slack: [], discord: [primary], linear: [], mattermost: [] });
+      Promise.resolve({
+        github: [],
+        slack: [],
+        discord: [primary],
+        linear: [],
+        mattermost: [],
+        gitlab: [],
+      });
     database.findDiscordConnection = () => Promise.resolve(primary);
     database.findDiscordConnectionForOrganization = async (_organizationId, guildId) =>
       guildId === primary.guildId ? primary : undefined;
@@ -462,7 +498,14 @@ describe("ProjectConfigurationStore resource compilation", () => {
     const database = createMemoryDatabase();
     await enrollTestDaemon(database);
     database.organizationConnectionUsage = () =>
-      Promise.resolve({ github: [], slack: [], discord: [primary], linear: [], mattermost: [] });
+      Promise.resolve({
+        github: [],
+        slack: [],
+        discord: [primary],
+        linear: [],
+        mattermost: [],
+        gitlab: [],
+      });
     database.findDiscordConnection = () => Promise.resolve(primary);
     database.findDiscordConnectionForOrganization = async (_organizationId, guildId) =>
       guildId === primary.guildId ? primary : undefined;

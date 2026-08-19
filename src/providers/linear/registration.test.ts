@@ -81,6 +81,7 @@ describe("Linear registration", () => {
         slack: [],
         linear: [],
         mattermost: [],
+        gitlab: [],
       }),
       { status: "notConfigured" },
     );
@@ -147,6 +148,7 @@ describe("Linear registration", () => {
           },
         ],
         mattermost: [],
+        gitlab: [],
       }),
       { status: "requiresReauthorization" },
     );
@@ -171,6 +173,7 @@ describe("Linear registration", () => {
         slack: [],
         linear: [expired],
         mattermost: [],
+        gitlab: [],
       }),
       { status: "requiresReauthorization" },
     );
@@ -181,6 +184,7 @@ describe("Linear registration", () => {
         slack: [],
         linear: [{ ...expired, refreshToken: "refresh-token" }],
         mattermost: [],
+        gitlab: [],
       }),
       { status: "connected" },
     );

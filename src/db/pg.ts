@@ -69,9 +69,12 @@ import type {
   StartConnectionAttemptInput,
   AcceptDiscordEventInput,
   AcceptGitHubEventInput,
+  AcceptGitLabEventInput,
   AcceptLinearEventInput,
   AcceptMattermostEventInput,
   AcceptSlackEventInput,
+  CreateGitLabConnectionInput,
+  RotateGitLabConnectionTokenInput,
   UpdateLinearConnectionTokensInput,
   LinearConnectionRefreshOperation,
   GitHubLifecycleReceiptClaim,
@@ -170,6 +173,10 @@ class PgDatabase implements Database {
 
   acceptMattermostEvent(input: AcceptMattermostEventInput) {
     return this.triggerAcceptance.acceptMattermost(input);
+  }
+
+  acceptGitLabEvent(input: AcceptGitLabEventInput) {
+    return this.triggerAcceptance.acceptGitLab(input);
   }
 
   persistManualEvent(input: PersistManualEventInput) {
@@ -3868,7 +3875,7 @@ class PgDatabase implements Database {
        order by connection.account_login, connection.id`,
       [organizationId],
     );
-    const [discord, slack, linear, mattermost] = await Promise.all([
+    const [discord, slack, linear, mattermost, gitlab] = await Promise.all([
       query<{
         id: string;
         organization_id: string;
@@ -3941,6 +3948,20 @@ class PgDatabase implements Database {
          order by team_display_name, id`,
         [organizationId],
       ),
+      query<{
+        id: string;
+        organization_id: string;
+        slug: string;
+        label: string;
+        base_url: string;
+        created_at: Date;
+      }>(
+        this.pool,
+        `select id, organization_id, slug, label, base_url, created_at
+         from gitlab_connections where organization_id = $1
+         order by label, id`,
+        [organizationId],
+      ),
     ]);
     return {
       github: github.rows.map((row) => ({
@@ -3997,6 +4018,14 @@ class PgDatabase implements Database {
         botUserId: row.bot_user_id,
         botUsername: row.bot_username,
         providerApplicationId: row.provider_application_id,
+      })),
+      gitlab: gitlab.rows.map((row) => ({
+        id: row.id,
+        organizationId: row.organization_id,
+        slug: row.slug,
+        label: row.label,
+        baseUrl: row.base_url,
+        createdAt: row.created_at,
       })),
     };
   }
@@ -4250,6 +4279,18 @@ class PgDatabase implements Database {
 
   findLinearConnection(linearOrganizationId: string) {
     return this.connections.findLinear(linearOrganizationId);
+  }
+
+  createGitLabConnection(input: CreateGitLabConnectionInput) {
+    return this.connections.createGitLab(input);
+  }
+
+  rotateGitLabConnectionToken(input: RotateGitLabConnectionTokenInput) {
+    return this.connections.rotateGitLabToken(input);
+  }
+
+  findGitLabConnectionSecret(connectionId: string) {
+    return this.connections.findGitLabSecret(connectionId);
   }
 
   findSlackConnectionForOrganization(organizationId: string, teamId: string) {

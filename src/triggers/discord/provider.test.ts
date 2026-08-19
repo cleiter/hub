@@ -150,6 +150,7 @@ describe("Discord Phase 1 trigger provider", () => {
         discord: [connection],
         linear: [],
         mattermost: [],
+        gitlab: [],
       });
     database.findDiscordConnectionForOrganization = () => Promise.resolve(connection);
     const { project, revision, store } = await createActiveProjectConfiguration(

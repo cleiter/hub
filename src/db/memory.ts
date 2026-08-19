@@ -41,9 +41,13 @@ import type {
   ConfigurationSyncAttemptRecord,
   AcceptDiscordEventInput,
   AcceptGitHubEventInput,
+  AcceptGitLabEventInput,
   AcceptLinearEventInput,
   AcceptMattermostEventInput,
   AcceptSlackEventInput,
+  CreateGitLabConnectionInput,
+  GitLabConnectionRecord,
+  RotateGitLabConnectionTokenInput,
   DurableProviderEvent,
   GitHubLifecycleReceiptClaim,
   GitHubLifecycleReceiptClaimInput,
@@ -221,6 +225,7 @@ class MemoryDatabase implements Database {
   private readonly slackConnections = new Map<string, SlackConnectionRecord>();
   private readonly linearConnections = new Map<string, LinearConnectionRecord>();
   private readonly mattermostConnections = new Map<string, MattermostConnectionRecord>();
+  private readonly gitlabConnections = new Map<string, GitLabConnectionRecord>();
   private readonly organizationIds: Set<string>;
 
   constructor(private readonly options: MemoryDatabaseOptions = {}) {
@@ -1098,6 +1103,25 @@ class MemoryDatabase implements Database {
       binding?.organizationId,
       binding?.id,
       input.projectId ?? null,
+      reason,
+    );
+  }
+
+  /**
+   * GitLab binds on the connection id carried in the webhook URL rather than on an identifier
+   * inside the payload, so the lookup is by id. Like the other providers here, the map is never
+   * populated — the memory database does not persist connections — which makes every delivery
+   * report `gitlab_unbound` rather than silently inventing a binding.
+   */
+  async acceptGitLabEvent(input: AcceptGitLabEventInput): Promise<ProviderEventAcceptance> {
+    const binding = this.gitlabConnections.get(input.connectionId);
+    const reason = input.dropReason ?? (binding === undefined ? "gitlab_unbound" : undefined);
+    return this.acceptMemoryEvent(
+      "gitlab",
+      input,
+      binding?.organizationId,
+      binding?.id,
+      String(input.projectId),
       reason,
     );
   }
@@ -2972,6 +2996,9 @@ class MemoryDatabase implements Database {
       mattermost: Array.from(this.mattermostConnections.values()).filter(
         (connection) => connection.organizationId === organizationId,
       ),
+      gitlab: Array.from(this.gitlabConnections.values()).filter(
+        (connection) => connection.organizationId === organizationId,
+      ),
     };
   }
 
@@ -3184,6 +3211,20 @@ class MemoryDatabase implements Database {
     return Promise.resolve(this.discordConnections.get(_guildId));
   }
 
+  createGitLabConnection(_input: CreateGitLabConnectionInput): Promise<GitLabConnectionRecord> {
+    return connectionPersistenceUnavailable();
+  }
+
+  rotateGitLabConnectionToken(_input: RotateGitLabConnectionTokenInput): Promise<boolean> {
+    return connectionPersistenceUnavailable();
+  }
+
+  findGitLabConnectionSecret(
+    _connectionId: string,
+  ): Promise<{ connection: GitLabConnectionRecord; tokenHash: string } | undefined> {
+    return Promise.resolve(undefined);
+  }
+
   findSlackConnection(_teamId: string): Promise<SlackConnectionRecord | undefined> {
     return Promise.resolve(this.slackConnections.get(_teamId));
   }
@@ -3241,13 +3282,18 @@ class MemoryDatabase implements Database {
   }
 
   private async acceptMemoryEvent(
-    provider: "github" | "discord" | "slack" | "linear" | "mattermost",
+    /**
+     * Named by the caller rather than derived from the input's shape: Mattermost and Slack both
+     * bind on `teamId`, so no discriminator on the payload could tell those two apart.
+     */
+    provider: "github" | "discord" | "slack" | "linear" | "mattermost" | "gitlab",
     input:
       | AcceptGitHubEventInput
       | AcceptDiscordEventInput
       | AcceptSlackEventInput
       | AcceptLinearEventInput
-      | AcceptMattermostEventInput,
+      | AcceptMattermostEventInput
+      | AcceptGitLabEventInput,
     organizationId: string | undefined,
     connectionId: string | undefined,
     resourceId: string | null,

@@ -9,6 +9,7 @@ import type {
   AcceptGitHubEventInput,
   AcceptLinearEventInput,
   AcceptMattermostEventInput,
+  AcceptGitLabEventInput,
   AcceptSlackEventInput,
   ConnectionProvider,
   GitHubLifecycleReceiptClaim,
@@ -50,6 +51,20 @@ export class ProviderEventAcceptanceRepository {
 
   acceptMattermost(input: AcceptMattermostEventInput): Promise<ProviderEventAcceptance> {
     return this.acceptProvider("mattermost", input.teamId, input.teamId, input);
+  }
+
+  /**
+   * GitLab binds on the connection's own id, which the sender proves it knows by presenting the
+   * matching token. The other providers bind on an id the provider assigns (installation, team,
+   * guild); a self-managed GitLab has no such identifier, so the connection row is the binding.
+   *
+   * No signature hash is passed, and that is load-bearing. GitLab's `X-Gitlab-Token` is constant
+   * per connection rather than per delivery, while `provider_event_receipts.signature_hash` is
+   * globally unique and is consulted during receipt lookup — storing the token hash there would
+   * make every delivery after the first replay the first one. GitLab dedupes on delivery id alone.
+   */
+  acceptGitLab(input: AcceptGitLabEventInput): Promise<ProviderEventAcceptance> {
+    return this.acceptProvider("gitlab", input.connectionId, input.projectId, input);
   }
 
   private async acceptProvider(
@@ -441,6 +456,8 @@ function selectFirstRoutePerProject<Route extends { projectId: string }>(
   return [...selected.values()];
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+
 /**
  * Which table answers "who owns this external resource". A wrong answer here binds an event to
  * another provider's organization, so every provider is named explicitly.
@@ -507,6 +524,21 @@ async function findConnection(
         })
         .from(schema.mattermostConnections)
         .where(eq(schema.mattermostConnections.teamId, String(externalId)))
+        .limit(1);
+      return row;
+    }
+    case "gitlab": {
+      // The external id is the connection's own uuid. Comparing a non-uuid string against a uuid
+      // column is a database error rather than a miss, so a malformed id is treated as unknown.
+      const connectionId = String(externalId);
+      if (!UUID_PATTERN.test(connectionId)) return undefined;
+      const [row] = await transaction
+        .select({
+          id: schema.gitlabConnections.id,
+          organizationId: schema.gitlabConnections.organizationId,
+        })
+        .from(schema.gitlabConnections)
+        .where(eq(schema.gitlabConnections.id, connectionId))
         .limit(1);
       return row;
     }

@@ -59,6 +59,7 @@ describe("project dashboard activity read models", () => {
           },
         ],
         mattermost: [],
+        gitlab: [],
       });
 
     const dashboard = new ProjectDashboard(database, accountAuth(), undefined);

@@ -215,6 +215,7 @@ describe("GitHub registration", () => {
         slack: [],
         linear: [],
         mattermost: [],
+        gitlab: [],
       }),
       {
         status: "notConfigured",
@@ -246,6 +247,7 @@ describe("GitHub registration", () => {
       slack: [],
       linear: [],
       mattermost: [],
+      gitlab: [],
     });
     const installations: number[] = [];
     const registration = createGitHubRegistration({
@@ -310,6 +312,7 @@ describe("GitHub registration", () => {
       slack: [],
       linear: [],
       mattermost: [],
+      gitlab: [],
     });
     const requests: unknown[] = [];
     const revoked: string[] = [];
