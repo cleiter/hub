@@ -5,8 +5,10 @@ import type { NormalizedGitHubEvent } from "../../auth/github-events.js";
 import { matchTriggers, readGitHubInvocationMessage } from "./match.js";
 
 describe("GitHub trigger matching", () => {
+  // `actions` used to belong here. It became a real authored key when GitLab landed, and the
+  // filter schema is shared across providers, so it now compiles for a GitHub trigger and is
+  // ignored by GitHub's matcher rather than rejected.
   it.each([
-    ["actions", ["opened"]],
     ["item_types", ["issue"]],
     ["labels", []],
   ])("does not accept the unsupported or empty %s filter", (key, value) => {

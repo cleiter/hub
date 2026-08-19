@@ -91,7 +91,14 @@ const AuthoredTriggerFilterSchema = z
     repo: z.string().min(1).optional(),
     guild: z.string().min(1).optional(),
     workspace: z.string().min(1).optional(),
-    /** A Linear project UUID. It is deliberately a string so imported Linear IDs work verbatim. */
+    /**
+     * The project a trigger is scoped to. Both providers that use this key spell it their own way:
+     * for Linear it is a project UUID, deliberately a string so imported Linear IDs work verbatim;
+     * for GitLab it is a path such as `acme/backend`, matched against the payload's
+     * `project.path_with_namespace`. Unlike `repo` the GitLab form is not resolved to a stable id
+     * at compile time — that would require a GitLab API token Hub does not hold — so renaming or
+     * transferring the project stops the filter matching until the path here is updated.
+     */
     project: z.string().min(1).optional(),
     /** Linear workflow-state IDs which are eligible for this trigger. */
     states: z.array(z.string().min(1)).min(1).optional(),
@@ -101,6 +108,10 @@ const AuthoredTriggerFilterSchema = z
     assignees: z.array(z.string().min(1)).min(1).optional(),
     /** A Mattermost team, named by its Hub connection slug. */
     team: z.string().min(1).optional(),
+    /** GitLab `object_attributes.action` values to accept. See the matcher for the default. */
+    actions: z.array(z.string().min(1)).optional(),
+    /** What a GitLab comment may be attached to. See the matcher for the default. */
+    noteable: z.array(z.string().min(1)).optional(),
     channels: z.array(z.string().min(1)).optional(),
     from_users: z.array(z.string().min(1)).optional(),
     inputs: z.record(z.string(), InputValueSchema).optional(),
