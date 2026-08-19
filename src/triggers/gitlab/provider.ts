@@ -5,9 +5,9 @@ import { NormalizedGitLabEventSchema, type NormalizedGitLabEvent } from "./event
 import { matchGitLabTriggers, readGitLabInvocationParserMessage } from "./match.js";
 
 /**
- * What a workflow reads as `paseo.event.gitlab.*`. `item` carries whichever subject the event is
- * about — the merge request, the issue, or the comment's target — so a workflow can be written
- * against one shape rather than three.
+ * What a step reading `${{ paseo.context }}` receives, under a `gitlab` key. `item` carries
+ * whichever subject the event is about — the merge request, the issue, or the comment's target —
+ * so a workflow can be written against one shape rather than three.
  */
 export interface GitLabMergeData {
   gitlab: {
@@ -110,6 +110,14 @@ export function createGitLabTriggerProvider(options: {
       }
 
       return matches.length === 0 ? "trigger_filters_rejected" : matches;
+    },
+    /**
+     * What a step reading `${{ paseo.context }}` receives. GitLab v1 fetches nothing back from the
+     * instance, so the context is exactly what the delivery carried — no discussion thread, no
+     * diff, nothing that would need a credential Hub does not have.
+     */
+    async materializeContext(launch) {
+      return launch.triggerContext.event;
     },
   };
 }

@@ -10,8 +10,22 @@ import { withReference } from "../failures/reference.js";
  * nobody mapped cannot leak through as raw text.
  */
 
-export const CONNECTION_PROVIDERS = ["github", "discord", "slack", "linear", "mattermost"] as const;
+/**
+ * GitLab is a connection provider like the others even though it never redirects: a connection is
+ * created in Hub with a generated token, so the only return it can produce is a disconnection.
+ */
+export const CONNECTION_PROVIDERS = [
+  "github",
+  "discord",
+  "slack",
+  "linear",
+  "mattermost",
+  "gitlab",
+] as const;
 export type ConnectionProvider = (typeof CONNECTION_PROVIDERS)[number];
+
+/** The providers whose connections are granted by a redirect back from the provider. */
+export type ConnectionRedirectProvider = Exclude<ConnectionProvider, "gitlab">;
 
 export const connectionResultSchema = z.enum([
   "github_connected",
@@ -24,6 +38,7 @@ export const connectionResultSchema = z.enum([
   "slack_disconnected",
   "linear_disconnected",
   "mattermost_disconnected",
+  "gitlab_disconnected",
   "github_cancelled",
   "discord_cancelled",
   "slack_cancelled",
@@ -116,6 +131,7 @@ const PROVIDER_NAMES: Readonly<Record<ConnectionProvider, string>> = {
   slack: "Slack",
   linear: "Linear",
   mattermost: "Mattermost",
+  gitlab: "GitLab",
 };
 
 export function connectionProviderName(provider: ConnectionProvider): string {
@@ -151,6 +167,7 @@ const RETURN_COPY: Readonly<Record<ConnectionResult, (name: string) => Connectio
   slack_disconnected: disconnected,
   linear_disconnected: disconnected,
   mattermost_disconnected: disconnected,
+  gitlab_disconnected: disconnected,
   github_cancelled: (name) => cancelled("Installation", name),
   slack_cancelled: (name) => cancelled("Installation", name),
   discord_cancelled: (name) => cancelled("Authorization", name),

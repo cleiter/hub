@@ -728,6 +728,48 @@ export class PaseoHub {
     expect(JSON.stringify(reasons)).not.toMatch(/PRIVATE-|TOKEN|SIGNATURE/u);
   }
 
+  /**
+   * Posts a merge request hook exactly as GitLab would, so the token minted in the browser is
+   * checked by the same path a real delivery takes rather than by a fixture.
+   */
+  async deliverGitLabMergeRequest(input: {
+    webhookUrl: string;
+    token: string;
+    deliveryId: string;
+  }): Promise<number> {
+    const response = await this.requests.post(input.webhookUrl, {
+      headers: {
+        "content-type": "application/json",
+        "x-gitlab-token": input.token,
+        "x-gitlab-event": "Merge Request Hook",
+        "webhook-id": input.deliveryId,
+      },
+      data: Buffer.from(
+        JSON.stringify({
+          object_kind: "merge_request",
+          user: { id: 41, username: "alice" },
+          project: { id: 4242, path_with_namespace: "acme/backend" },
+          object_attributes: { iid: 7, action: "open", title: "Cache", description: "/review" },
+        }),
+      ),
+    });
+    return response.status();
+  }
+
+  async gitlabDeliveryReasons(deliveryId: string): Promise<(string | null)[]> {
+    return z
+      .array(z.object({ dropped_reason: z.string().nullable() }))
+      .parse(
+        await this.queryDatabaseRows(
+          this.primary,
+          `select dropped_reason from provider_event_receipts
+             where provider = 'gitlab' and delivery_id like $1`,
+          [`%:${deliveryId}`],
+        ),
+      )
+      .map((row) => row.dropped_reason);
+  }
+
   async setDaemonSlug(daemonId: string, slug: string): Promise<void> {
     await this.queryDatabase(this.primary, "update daemons set slug = $2 where id = $1", [
       daemonId,

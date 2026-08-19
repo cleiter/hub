@@ -1,9 +1,8 @@
 /* oxlint-disable eslint-plugin-react-perf/jsx-no-new-array-as-prop, eslint-plugin-react-perf/jsx-no-new-function-as-prop, eslint-plugin-react-perf/jsx-no-new-object-as-prop, eslint-plugin-react-perf/jsx-no-jsx-as-prop, typescript-eslint/no-unsafe-type-assertion -- route links and mutation controls are intentionally scoped to each rendered tenant snapshot */
-import { assertNever } from "../exhaustive.js";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { type FormEvent, type ReactNode } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { CONNECTION_MUTATION_KEY } from "../auth/tenant-mutation.js";
 import { useActiveAccount } from "../auth/active-account.js";
 import { Card, CardSkeleton } from "../components/app/card.js";
@@ -24,16 +23,34 @@ import { SummaryPanel, type SummaryRow } from "../components/app/summary-panel.j
 import { TwoLine } from "../components/app/two-line.js";
 import { ProviderGlyph } from "../connections/provider-glyph.js";
 import { useConnectionReturn } from "../connections/result.js";
-import { connectionReturnCopy, type ConnectionReturnCopy } from "../connections/result-contract.js";
+import {
+  connectionProviderName,
+  connectionReturnCopy,
+  type ConnectionProvider,
+  type ConnectionRedirectProvider,
+  type ConnectionReturnCopy,
+} from "../connections/result-contract.js";
 import { Button } from "../components/ui/button.js";
 import { DaemonsPanel } from "../daemons/account-daemons.js";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../components/ui/dialog.js";
+import { Field, FieldLabel } from "../components/ui/field.js";
+import { Input } from "../components/ui/input.js";
 import type { Result } from "../contract/respond.js";
 import {
   connectionStatus,
+  createGitLabConnection,
   disconnectConnection,
+  rotateGitLabConnectionToken,
   startConnection,
   type ConnectionDisconnectResult,
   type ConnectionStatus,
+  type RevealedGitLabConnection,
 } from "../connections/functions.js";
 import { refreshConnections } from "../connections/status.js";
 import { useRouteTenant } from "./context.js";
@@ -80,6 +97,44 @@ export function OrganizationConnectionsPanel() {
     queryFn: () => loadStatus({ data: scope }),
   });
   const [returned, setReturned] = useConnectionReturn();
+  const [creatingGitLab, setCreatingGitLab] = useState(false);
+  const [revealed, setRevealed] = useState<GitLabTokenReveal | undefined>(undefined);
+  const refreshConnectionViews = async () => {
+    await Promise.all([
+      invalidateOrganization(queryClient, scope.organizationSlug),
+      queryClient.invalidateQueries({
+        queryKey: ["connection-status", tenant.account.id, tenant.organization.id],
+      }),
+    ]);
+  };
+  const createGitLab = useMutation({
+    mutationKey: CONNECTION_MUTATION_KEY,
+    mutationFn: useServerFn(createGitLabConnection) as (
+      input: Parameters<typeof createGitLabConnection>[0],
+    ) => Promise<Result<RevealedGitLabConnection>>,
+    onSuccess: async (response) => {
+      if (response.status !== "ok") return;
+      setRevealed({ kind: "created", ...response.data });
+      await refreshConnectionViews();
+    },
+  });
+  const rotateGitLab = useMutation({
+    mutationKey: CONNECTION_MUTATION_KEY,
+    mutationFn: useServerFn(rotateGitLabConnectionToken) as (
+      input: Parameters<typeof rotateGitLabConnectionToken>[0],
+    ) => Promise<Result<{ token: string }>>,
+  });
+  const rotateGitLabToken = (connectionId: string, label: string) => {
+    rotateGitLab.mutate(
+      { data: { ...scope, connectionId } },
+      {
+        onSuccess: (response) => {
+          if (response.status !== "ok") return;
+          setRevealed({ kind: "rotated", label, token: response.data.token });
+        },
+      },
+    );
+  };
   const connect = useMutation({
     mutationKey: CONNECTION_MUTATION_KEY,
     mutationFn: useServerFn(startConnection),
@@ -108,7 +163,9 @@ export function OrganizationConnectionsPanel() {
   );
   if (!status.ok) return status.element;
   const data = snapshot.data;
-  const connectProvider = (provider: ConnectionProviderName) => {
+  // GitLab has no authorization flow to start, so it never reaches here: its connections are
+  // created from the dialog below.
+  const connectProvider = (provider: ConnectionRedirectProvider) => {
     connect.mutate(
       { data: { ...scope, provider } },
       {
@@ -128,9 +185,20 @@ export function OrganizationConnectionsPanel() {
       },
     );
   };
+  const submitGitLab = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    createGitLab.mutate({
+      data: { ...scope, label: formString(form, "label"), baseUrl: formString(form, "baseUrl") },
+    });
+    setCreatingGitLab(false);
+  };
   const rows = connectionRows(data);
-  const busy = connect.isPending || disconnect.isPending;
-  const connectionActionLabel = (provider: ConnectionProviderName) => {
+  const busy =
+    connect.isPending || disconnect.isPending || createGitLab.isPending || rotateGitLab.isPending;
+  const connectionActionLabel = (
+    provider: "github" | "discord" | "slack" | "linear" | "mattermost",
+  ) => {
     if (
       (provider === "slack" || provider === "linear") &&
       status.data[provider].status === "requiresReauthorization"
@@ -170,11 +238,25 @@ export function OrganizationConnectionsPanel() {
   // A provider block that can neither be acted on nor list anything says only its own name.
   // That is every provider for someone who cannot connect one, and four of them is the whole
   // page talking about work the reader cannot do.
-  const shown = CONNECTION_PROVIDERS.map((provider) => ({
-    provider,
-    connections: rows.filter((connection) => connection.provider === provider),
-    action: providerAction(provider),
-  })).filter((block) => block.action !== undefined || block.connections.length > 0);
+  // GitLab needs no provider app and no authorization redirect: an owner creates the connection
+  // here and carries the URL and token to a GitLab webhook, so its action never depends on status.
+  const gitLabAction: ReactNode = data.capabilities.manageResources ? (
+    <Button disabled={busy} variant="outline" size="sm" onClick={() => setCreatingGitLab(true)}>
+      Add GitLab
+    </Button>
+  ) : undefined;
+  const shown = [
+    ...CONNECTION_PROVIDERS.map((provider) => ({
+      provider,
+      connections: rows.filter((connection) => connection.provider === provider),
+      action: providerAction(provider),
+    })),
+    {
+      provider: "gitlab" as const,
+      connections: rows.filter((connection) => connection.provider === "gitlab"),
+      action: gitLabAction,
+    },
+  ].filter((block) => block.action !== undefined || block.connections.length > 0);
   // Whose problem the empty page is: an instance with no provider apps is the operator's, an
   // organization that has connected nothing is its owners'.
   const nothingToConnect = CONNECTION_PROVIDERS.every(
@@ -188,7 +270,10 @@ export function OrganizationConnectionsPanel() {
       {returned === undefined ? null : (
         <ConnectionReturnBanner copy={connectionReturnCopy(returned)} />
       )}
-      <CommandError mutations={[connect, disconnect]} />
+      <CommandError mutations={[connect, disconnect, createGitLab, rotateGitLab]} />
+      {revealed === undefined ? null : (
+        <GitLabTokenPanel reveal={revealed} onDismiss={() => setRevealed(undefined)} />
+      )}
       <Section>
         {shown.length === 0 ? (
           <EmptyState title="No connections" description={nothingToConnect} />
@@ -204,10 +289,31 @@ export function OrganizationConnectionsPanel() {
               onRevoke={(connectionId) =>
                 disconnect.mutate({ data: { ...scope, provider, connectionId } })
               }
+              onRotate={rotateGitLabToken}
             />
           ))
         )}
       </Section>
+      <Dialog open={creatingGitLab} onOpenChange={setCreatingGitLab}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add a GitLab connection</DialogTitle>
+          </DialogHeader>
+          <form aria-label="Add GitLab connection" className="grid gap-5" onSubmit={submitGitLab}>
+            <LabeledInput label="Label" name="label" required />
+            <LabeledInput
+              label="GitLab instance URL"
+              name="baseUrl"
+              type="url"
+              defaultValue="https://gitlab.com"
+              required
+            />
+            <DialogFooter>
+              <Button type="submit">Create connection</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
       <Section
         title="Known unrouted events"
         description="Events received for this organization that were not routed to a workflow."
@@ -230,13 +336,15 @@ function ProviderConnections({
   busy,
   action,
   onRevoke,
+  onRotate,
 }: {
-  provider: ConnectionProviderName;
+  provider: ConnectionProvider;
   connections: readonly ConnectionRecord[];
   canManage: boolean;
   busy: boolean;
   action: ReactNode;
   onRevoke: (connectionId: string) => void;
+  onRotate: (connectionId: string, label: string) => void;
 }) {
   const label = providerLabel(provider);
   return (
@@ -265,6 +373,17 @@ function ProviderConnections({
               actions={
                 canManage ? (
                   <RowActions label={`Actions for ${connection.name}`}>
+                    {connection.provider === "gitlab" ? (
+                      <ConfirmMenuItem
+                        busy={busy}
+                        label="Issue new token"
+                        title={`Issue a new token for ${connection.name}?`}
+                        description="The current token stops working immediately. GitLab deliveries fail until the new token is saved in the webhook."
+                        confirmLabel="Issue new token"
+                        cancelLabel="Cancel"
+                        onConfirm={() => onRotate(connection.id, connection.name)}
+                      />
+                    ) : null}
                     <ConfirmMenuItem
                       busy={busy}
                       destructive
@@ -717,6 +836,13 @@ function connectionRows(data: OrganizationSnapshot) {
       externalId: `team ${connection.teamId}`,
       status: "connected" as const,
     })),
+    ...data.connections.gitlab.map((connection) => ({
+      provider: "gitlab" as const,
+      id: connection.id,
+      name: connection.label,
+      externalId: connection.baseUrl,
+      status: "connected" as const,
+    })),
     ...data.connections.slack.map((connection) => ({
       provider: "slack" as const,
       id: connection.id,
@@ -737,21 +863,8 @@ function connectionRows(data: OrganizationSnapshot) {
     })),
   ];
 }
-function providerLabel(provider: ConnectionProviderName): string {
-  switch (provider) {
-    case "github":
-      return "GitHub";
-    case "discord":
-      return "Discord";
-    case "slack":
-      return "Slack";
-    case "linear":
-      return "Linear";
-    case "mattermost":
-      return "Mattermost";
-    default:
-      return assertNever(provider, "providerLabel");
-  }
+function providerLabel(provider: ConnectionProvider) {
+  return connectionProviderName(provider);
 }
 
 /** The one connection status a sentence-cased machine value gets wrong. */
@@ -762,4 +875,69 @@ function connectionStatusLabel(status: string): string {
 function formString(form: FormData, name: string) {
   const value = form.get(name);
   return typeof value === "string" ? value : "";
+}
+/**
+ * A GitLab token is readable exactly once, when it is issued. What the user has to do with it —
+ * paste it into a GitLab webhook alongside the URL — happens outside Hub, so the reveal stays on
+ * screen until it is dismissed rather than disappearing with the dialog that produced it.
+ */
+type GitLabTokenReveal =
+  | ({ kind: "created" } & RevealedGitLabConnection)
+  | { kind: "rotated"; label: string; token: string };
+
+function GitLabTokenPanel({
+  reveal,
+  onDismiss,
+}: {
+  reveal: GitLabTokenReveal;
+  onDismiss: () => void;
+}) {
+  return (
+    <NoticeAlert
+      standalone
+      tone="success"
+      title={
+        reveal.kind === "created"
+          ? `${reveal.label} is ready to receive GitLab webhooks.`
+          : `${reveal.label} has a new secret token.`
+      }
+    >
+      {reveal.kind === "created" ? (
+        <RevealedValue label="Webhook URL" value={reveal.webhookUrl} />
+      ) : null}
+      <RevealedValue label="Secret token" value={reveal.token} />
+      <span className="text-xs text-muted-foreground">
+        Add these to a GitLab webhook with Merge request, Issues and Comments events enabled. Hub
+        stores only a hash of the token, so this is the only time it can be read. Configure the hook
+        at either the group or the project level, not both — GitLab delivers each event once per
+        hook, and two hooks means two runs.
+      </span>
+      <Button type="button" variant="outline" size="sm" onClick={onDismiss}>
+        Done
+      </Button>
+    </NoticeAlert>
+  );
+}
+
+function RevealedValue({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="grid gap-0.5">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <code className="break-all rounded bg-muted px-2 py-1 font-mono text-xs">{value}</code>
+    </span>
+  );
+}
+
+function LabeledInput({
+  label,
+  name,
+  ...props
+}: { label: string; name: string } & Omit<React.ComponentProps<typeof Input>, "name">) {
+  const id = `field-${name}`;
+  return (
+    <Field>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <Input id={id} name={name} {...props} />
+    </Field>
+  );
 }

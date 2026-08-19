@@ -22,6 +22,7 @@ import {
   CONNECTIONS_RETURN_ROUTE,
   connectionReturnUrl,
   type ConnectionProvider,
+  type ConnectionRedirectProvider,
   type ConnectionResult,
 } from "./result-contract.js";
 
@@ -110,7 +111,8 @@ export async function cancelledConnectionResult(input: {
   auth: AuthServer;
   database: Database;
   request: Request;
-  provider: ConnectionProvider;
+  /** Only a redirect flow can be cancelled, so GitLab never reaches here. */
+  provider: ConnectionRedirectProvider;
   phase:
     | "github_user_authorization"
     | "discord_authorization"

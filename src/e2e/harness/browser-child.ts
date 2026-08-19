@@ -14,6 +14,7 @@ import { loadBuiltStartServer } from "../../server/build.js";
 import { createGitHubRegistration } from "../../providers/github/index.js";
 import type { ProviderRegistration } from "../../providers/registration.js";
 import { createDiscordRegistration } from "../../providers/discord/index.js";
+import { createGitLabRegistration } from "../../providers/gitlab/index.js";
 import { createSlackRegistration } from "../../providers/slack/index.js";
 import { createLinearRegistration } from "../../providers/linear/index.js";
 import {
@@ -281,6 +282,7 @@ async function main(): Promise<void> {
             publicBaseUrl,
             configuration: null,
           }),
+          createGitLabRegistration({ database, auth, publicBaseUrl }),
         ];
   const providers = await providerRuntimeOptions(auth, registrations, {
     database,

@@ -48,6 +48,15 @@ const mattermostStatusSchema = z.discriminatedUnion("status", [
     status: z.literal("connected"),
   }),
 ]);
+/**
+ * GitLab needs no instance-wide credentials, so unlike the others it is never `notConfigured` — an
+ * organization either has connections or it does not.
+ */
+const gitlabStatusSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("notConfigured") }),
+  z.object({ status: z.literal("disconnected") }),
+  z.object({ status: z.literal("connected") }),
+]);
 export const connectionStatusSchema = z.object({
   canManage: z.boolean(),
   github: githubStatusSchema,
@@ -55,6 +64,7 @@ export const connectionStatusSchema = z.object({
   slack: slackStatusSchema,
   linear: linearStatusSchema,
   mattermost: mattermostStatusSchema,
+  gitlab: gitlabStatusSchema,
 });
 const scopeSchema = z.object({
   organizationSlug: z.string().min(1),
@@ -62,6 +72,10 @@ const scopeSchema = z.object({
 });
 const providerSchema = scopeSchema.extend({
   provider: z.enum(CONNECTION_PROVIDERS),
+});
+/** GitLab has no authorization flow to start: a connection is created in Hub, not granted by GitLab. */
+const startProviderSchema = scopeSchema.extend({
+  provider: z.enum(["github", "discord", "slack", "linear", "mattermost"]),
 });
 const disconnectSchema = providerSchema.extend({ connectionId: z.string().uuid() });
 /**
@@ -74,6 +88,20 @@ const startSchema = z.union([
   z.object({ connected: z.array(z.string()) }),
 ]);
 export type ConnectionStartResult = z.infer<typeof startSchema>;
+const createGitLabSchema = scopeSchema.extend({
+  label: z.string().min(1).max(120),
+  baseUrl: z.string().url(),
+});
+const rotateGitLabSchema = scopeSchema.extend({ connectionId: z.string().uuid() });
+const revealedGitLabConnectionSchema = z.object({
+  connectionId: z.string().uuid(),
+  label: z.string(),
+  webhookUrl: z.string().url(),
+  token: z.string().min(1),
+});
+const rotatedGitLabTokenSchema = z.object({ token: z.string().min(1) });
+
+export type RevealedGitLabConnection = z.infer<typeof revealedGitLabConnectionSchema>;
 
 export type ConnectionStatus = z.infer<typeof connectionStatusSchema>;
 export type ConnectionDisconnectResult = `${ConnectionProvider}_disconnected`;
@@ -103,11 +131,11 @@ export const connectionStatus = createServerFn({ method: "GET" })
   });
 
 export const startConnection = createServerFn({ method: "POST" })
-  .validator(providerSchema)
+  .validator(startProviderSchema)
   .handler(async ({ data }): Promise<Result<ConnectionStartResult>> => {
     const name = connectionProviderName(data.provider);
     try {
-      const operation = CONNECTION_OPERATIONS[data.provider].start;
+      const operation = START_OPERATIONS[data.provider];
       const response = await handleConnections(
         operationRequest("POST", "/connections/start", data),
         operation,
@@ -147,7 +175,7 @@ export const disconnectConnection = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<Result<{ result: ConnectionDisconnectResult }>> => {
     const name = connectionProviderName(data.provider);
     try {
-      const operation = CONNECTION_OPERATIONS[data.provider].disconnect;
+      const operation = DISCONNECT_OPERATIONS[data.provider];
       const response = await handleConnections(
         operationRequest("POST", "/connections/disconnect", data, data.connectionId),
         operation,
@@ -176,12 +204,83 @@ export const disconnectConnection = createServerFn({ method: "POST" })
     }
   });
 
-const CONNECTION_OPERATIONS = {
-  github: { start: "githubStart", disconnect: "githubDisconnect" },
-  discord: { start: "discordStart", disconnect: "discordDisconnect" },
-  slack: { start: "slackStart", disconnect: "slackDisconnect" },
-  linear: { start: "linearStart", disconnect: "linearDisconnect" },
-  mattermost: { start: "mattermostStart", disconnect: "mattermostDisconnect" },
+/**
+ * The token is readable exactly once, in this response. Hub stores only its hash, so a token that
+ * is not written down where GitLab can be given it has to be replaced by rotating.
+ */
+export const createGitLabConnection = createServerFn({ method: "POST" })
+  .validator(createGitLabSchema)
+  .handler(async ({ data }): Promise<Result<RevealedGitLabConnection>> => {
+    const message =
+      "Hub couldn't create the GitLab connection. Check the instance URL and try again.";
+    try {
+      const response = await handleConnections(
+        operationRequest("POST", "/connections/gitlab", data, undefined, {
+          organizationSlug: data.organizationSlug,
+          label: data.label,
+          baseUrl: data.baseUrl,
+        }),
+        "gitlabCreate",
+      );
+      if (!response.ok) {
+        return connectionResponseFailure("connection.gitlab.create", response, message, {
+          ...data,
+          provider: "gitlab",
+        });
+      }
+      return respondOk(revealedGitLabConnectionSchema.parse(await response.json()));
+    } catch (error) {
+      return respondWithFailure(
+        error,
+        connectionContext("connection.gitlab.create", { ...data, provider: "gitlab" }),
+        { fallback: message },
+      );
+    }
+  });
+
+export const rotateGitLabConnectionToken = createServerFn({ method: "POST" })
+  .validator(rotateGitLabSchema)
+  .handler(async ({ data }): Promise<Result<{ token: string }>> => {
+    const message =
+      "Hub couldn't issue a new token for this GitLab connection. Reload its status and try again.";
+    try {
+      const response = await handleConnections(
+        operationRequest("POST", "/connections/gitlab/rotate", data, data.connectionId, {
+          organizationSlug: data.organizationSlug,
+        }),
+        "gitlabRotate",
+      );
+      if (!response.ok) {
+        return connectionResponseFailure("connection.gitlab.rotate", response, message, {
+          ...data,
+          provider: "gitlab",
+        });
+      }
+      return respondOk(rotatedGitLabTokenSchema.parse(await response.json()));
+    } catch (error) {
+      return respondWithFailure(
+        error,
+        connectionContext("connection.gitlab.rotate", { ...data, provider: "gitlab" }),
+        { fallback: message },
+      );
+    }
+  });
+
+const START_OPERATIONS = {
+  github: "githubStart",
+  discord: "discordStart",
+  slack: "slackStart",
+  linear: "linearStart",
+  mattermost: "mattermostStart",
+} as const;
+
+const DISCONNECT_OPERATIONS = {
+  github: "githubDisconnect",
+  discord: "discordDisconnect",
+  slack: "slackDisconnect",
+  linear: "linearDisconnect",
+  mattermost: "mattermostDisconnect",
+  gitlab: "gitlabDisconnect",
 } as const;
 
 function connectionContext(
@@ -231,6 +330,7 @@ function operationRequest(
   path: string,
   scope: { organizationSlug: string; projectSlug?: string | undefined },
   connectionId?: string,
+  body?: Record<string, string>,
 ): Request {
   const incoming = getRequest();
   const headers = new Headers(incoming.headers);
@@ -242,6 +342,6 @@ function operationRequest(
   return new Request(url, {
     method,
     headers,
-    ...(method === "POST" ? { body: "{}" } : {}),
+    ...(method === "POST" ? { body: JSON.stringify(body ?? {}) } : {}),
   });
 }

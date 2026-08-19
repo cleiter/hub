@@ -55,6 +55,27 @@ describe("GitLab trigger provider", () => {
     });
   });
 
+  it("hands the same event to a step reading paseo.context", async () => {
+    const { project, revision, store } = await activeConfiguration();
+    const provider = createGitLabTriggerProvider({ configurationStoreForProject: () => store });
+    const matches = await provider.match(external(project.id, revision.id, event()));
+    if (typeof matches === "string") throw new Error(`expected matches, got ${matches}`);
+    const match = matches[0];
+    if (match === undefined || !isAcceptedTriggerProviderMatch(match)) {
+      throw new Error("expected an accepted match");
+    }
+
+    const context = await provider.materializeContext!({
+      executionId: "execution-gitlab",
+      organizationId: "org_1",
+      projectId: project.id,
+      providerEventReceiptId: "11111111-1111-4111-8111-111111111118",
+      triggerContext: match.triggerContext,
+    });
+
+    assert.deepEqual(context, match.triggerContext.event);
+  });
+
   it("reports why nothing ran when the configuration has no trigger for the event", async () => {
     const { project, revision, store } = await activeConfiguration();
     const provider = createGitLabTriggerProvider({ configurationStoreForProject: () => store });

@@ -1,7 +1,7 @@
 # Single-repository team bot
 
-Run a Codex classifier and worker from Discord, Slack, Mattermost, or GitHub. Every step gets an isolated
-worktree based on `origin/main`.
+Run a Codex classifier and worker from Discord, Slack, Mattermost, GitHub, or GitLab. Every step
+gets an isolated worktree based on `origin/main`.
 
 ## Configure the example
 
@@ -18,10 +18,19 @@ Copy `.paseo` to your repository root, then replace these values:
 | `YOUR_MATTERMOST_USERNAME`          | Mattermost user allowed to trigger runs  |
 | `your-github-login`                 | GitHub user allowed to trigger runs      |
 | `@your-bot`                         | Mention that starts the GitHub workflow  |
+| `your-group/your-project`           | GitLab project path allowed to trigger   |
+| `your-gitlab-username`              | GitLab user allowed to trigger runs      |
 
 Connect Discord, Slack, Mattermost, and GitHub to the project before enabling their triggers.
 The Mattermost bot must also be added to each channel it should watch. Keep the user
 allowlists narrow; wildcards are not supported.
+
+GitLab is inbound only. Hub receives merge request, issue, and comment hooks, but mints no GitLab
+credential — a GitLab-triggered step cannot clone a private project or comment back unless the
+daemon already holds GitLab credentials of its own. Add the connection under Connections → Add
+GitLab, then paste the URL and token it returns into a GitLab webhook. Configure that hook at
+either the group or the project level, not both: GitLab delivers an event once per hook, so two
+hooks means two runs.
 
 ## Deploy
 

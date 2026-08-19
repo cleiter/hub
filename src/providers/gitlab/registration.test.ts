@@ -120,13 +120,10 @@ describe("GitLab registration", () => {
     });
     const rotate = () =>
       registration.connection.actions["rotate"]!(
-        new Request("https://hub.test/rotate?organizationSlug=org", {
-          method: "POST",
-          body: JSON.stringify({
-            organizationSlug: "org",
-            connectionId: "44444444-4444-4444-8444-444444444444",
-          }),
-        }),
+        new Request(
+          "https://hub.test/rotate?organizationSlug=org&connectionId=44444444-4444-4444-8444-444444444444",
+          { method: "POST" },
+        ),
       );
 
     const first = await rotate();

@@ -9,7 +9,8 @@ const PROVIDER_NAMES = {
   slack: "Slack",
   linear: "Linear",
   mattermost: "Mattermost",
-} as const;
+  gitlab: "GitLab",
+} as const satisfies Record<ConnectionProvider, string>;
 
 export function connectionsQueryKey(accountId: string, organizationId: string) {
   return ["connections", accountId, organizationId] as const;

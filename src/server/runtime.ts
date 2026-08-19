@@ -228,7 +228,10 @@ export async function handleConnections(
     | "linearDisconnect"
     | "linearCallback"
     | "mattermostStart"
-    | "mattermostDisconnect",
+    | "mattermostDisconnect"
+    | "gitlabCreate"
+    | "gitlabRotate"
+    | "gitlabDisconnect",
 ): Promise<Response> {
   const runtime = await getApplication();
   if (operation === "status") return runtime.connectionStatus(request);
@@ -253,6 +256,9 @@ const CONNECTION_ACTIONS = {
   // Mattermost has no callback: Hub holds the bot credential, so there is nothing to authorize.
   mattermostStart: { provider: "mattermost", name: "start" },
   mattermostDisconnect: { provider: "mattermost", name: "disconnect" },
+  gitlabCreate: { provider: "gitlab", name: "create" },
+  gitlabRotate: { provider: "gitlab", name: "rotate" },
+  gitlabDisconnect: { provider: "gitlab", name: "disconnect" },
 } as const;
 
 export async function resolveOrganizationResources(

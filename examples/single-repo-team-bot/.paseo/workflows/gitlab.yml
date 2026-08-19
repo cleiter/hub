@@ -1,0 +1,60 @@
+name: gitlab-merge-request
+on: gitlab.merge_request
+max_runtime: 2h
+filters:
+  # Matches GitLab's path_with_namespace. Renaming or transferring the project changes this value
+  # and silently stops the trigger matching until this file is updated.
+  project: your-group/your-project
+  from_users: [your-gitlab-username]
+  contains: "@your-bot"
+  # Defaults to [open, reopen, merge]. Add `update` only if a label or description change should
+  # start a run — GitLab sends a merge request hook for every one of them.
+  actions: [open, reopen]
+steps:
+  - id: classify
+    environment: repository
+    max_runtime: 2m
+    idle_timeout: 30s
+    auto_archive: true
+    agent: classifier
+    prompt:
+      - include: partials/safety.md
+      - include: partials/classifier.md
+      - text: |
+          <user-prompt>
+          ${{ paseo.prompt }}
+          </user-prompt>
+    output:
+      schema:
+        type: object
+        additionalProperties: false
+        required: [kind, summary]
+        properties:
+          kind: { type: string, enum: [question, change, review] }
+          summary: { type: string }
+
+  # Hub mints no GitLab credential, so this step has no GitLab token and cannot clone a private
+  # project or reply on the merge request. The daemon must already hold whatever GitLab
+  # credentials the work needs.
+  - id: work
+    environment: repository
+    max_runtime: 90m
+    idle_timeout: 10m
+    auto_archive: true
+    agent: worker
+    prompt:
+      - include: partials/safety.md
+      - include: partials/worker.md
+      - text: |
+          <context>
+          ${{ paseo.context }}
+          </context>
+
+          <classification>
+          kind: ${{ steps.classify.outputs.kind }}
+          summary: ${{ steps.classify.outputs.summary }}
+          </classification>
+
+          <user-prompt>
+          ${{ paseo.prompt }}
+          </user-prompt>

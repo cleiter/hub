@@ -12,7 +12,15 @@ import { assertNever } from "../exhaustive.js";
 export function ProviderGlyph({
   provider,
 }: {
-  provider: "github" | "discord" | "slack" | "linear" | "mattermost" | "manual" | "schedule";
+  provider:
+    | "github"
+    | "discord"
+    | "slack"
+    | "linear"
+    | "mattermost"
+    | "gitlab"
+    | "manual"
+    | "schedule";
 }) {
   switch (provider) {
     case "github":
@@ -25,6 +33,8 @@ export function ProviderGlyph({
       return <LinearMark />;
     case "mattermost":
       return <MessagesSquareIcon className="size-4.5" aria-hidden="true" />;
+    case "gitlab":
+      return <GitLabMark />;
     case "schedule":
       return <ClockIcon className="size-4.5" aria-hidden="true" />;
     case "manual":
@@ -46,6 +56,21 @@ function DiscordMark() {
   return (
     <svg viewBox="0 0 16 16" className="size-4.5" fill="currentColor" aria-hidden="true">
       <path d="M13.55 3.11A13.2 13.2 0 0 0 10.29 2.1a.05.05 0 0 0-.05.02c-.14.25-.3.58-.41.84a12.2 12.2 0 0 0-3.66 0A8.4 8.4 0 0 0 5.75 2.12.05.05 0 0 0 5.7 2.1c-1.14.2-2.23.54-3.25 1.01a.05.05 0 0 0-.02.02C.36 6.28-.22 9.36.07 12.4c0 .01.01.03.02.03 1.37 1.01 2.7 1.62 4 2.03a.05.05 0 0 0 .06-.02c.31-.42.58-.87.82-1.34a.05.05 0 0 0-.03-.07 8.7 8.7 0 0 1-1.25-.6.05.05 0 0 1 0-.09l.25-.19a.05.05 0 0 1 .05 0 9.3 9.3 0 0 0 7.94 0 .05.05 0 0 1 .05 0l.25.2a.05.05 0 0 1 0 .08c-.4.24-.82.44-1.25.6a.05.05 0 0 0-.03.07c.24.47.52.92.82 1.34a.05.05 0 0 0 .06.02 13.2 13.2 0 0 0 4-2.03.05.05 0 0 0 .02-.03c.35-3.52-.57-6.57-2.4-9.28a.04.04 0 0 0-.02-.02ZM5.35 10.55c-.79 0-1.44-.72-1.44-1.6 0-.89.64-1.61 1.44-1.61.8 0 1.45.73 1.44 1.6 0 .89-.64 1.61-1.44 1.61Zm5.31 0c-.79 0-1.44-.72-1.44-1.6 0-.89.63-1.61 1.44-1.61.8 0 1.45.73 1.44 1.6 0 .89-.63 1.61-1.44 1.61Z" />
+    </svg>
+  );
+}
+
+/**
+ * A simplified tanuki: three flames over the body, drawn as four flat shapes rather than the
+ * official artwork's shaded facets, which disappear at 18 pixels anyway.
+ */
+function GitLabMark() {
+  return (
+    <svg viewBox="0 0 16 16" className="size-4.5" fill="currentColor" aria-hidden="true">
+      <path d="M8 0.6 10.94 6.45H5.06Z" />
+      <path d="M3.2 0.6 5.06 6.45H1.13Z" />
+      <path d="M12.8 0.6 14.87 6.45H10.94Z" />
+      <path d="M8 15.4 1.13 6.45h13.74Z" />
     </svg>
   );
 }

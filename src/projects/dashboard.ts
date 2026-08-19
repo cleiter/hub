@@ -448,6 +448,12 @@ function connectionUsageView(
       guildId: connection.guildId,
       guildName: connection.guildName,
     })),
+    gitlab: connections.gitlab.map((connection) => ({
+      id: connection.id,
+      slug: connection.slug,
+      label: connection.label,
+      baseUrl: connection.baseUrl,
+    })),
     slack: connections.slack.map((connection) => ({
       id: connection.id,
       slug: connection.slug,

@@ -2,7 +2,11 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import type { AuthServer } from "../../auth/server.js";
 import type { Database, GitLabConnectionRecord } from "../../db/types.js";
-import { connectionActionFailure, manageConnectionAccess } from "../../connections/shared.js";
+import {
+  connectionActionFailure,
+  manageConnectionAccess,
+  requiredConnectionId,
+} from "../../connections/shared.js";
 import { slugify } from "../../slug.js";
 import { createGitLabTriggerProvider } from "../../triggers/gitlab/provider.js";
 import { createGitLabWebhookSource, hashGitLabToken } from "../../triggers/gitlab/webhook.js";
@@ -18,11 +22,6 @@ const CreateConnectionSchema = z.object({
   organizationSlug: z.string().min(1),
   label: z.string().min(1).max(120),
   baseUrl: z.string().url(),
-});
-
-const ConnectionReferenceSchema = z.object({
-  organizationSlug: z.string().min(1),
-  connectionId: z.string().uuid(),
 });
 
 /**
@@ -119,11 +118,10 @@ function connectionActions(options: {
       let token: string | undefined;
       try {
         const access = await manageConnectionAccess(options.auth, options.database, request);
-        const input = ConnectionReferenceSchema.parse(await request.json());
         token = newWebhookToken();
         const rotated = await options.database.rotateGitLabConnectionToken({
           organizationId: access.tenant.organization.id,
-          connectionId: input.connectionId,
+          connectionId: requiredConnectionId(request),
           tokenHash: hashGitLabToken(token),
         });
         if (!rotated) return Response.json({ error: "not_found" }, { status: 404 });
@@ -137,8 +135,7 @@ function connectionActions(options: {
       if (rejected !== undefined) return rejected;
       try {
         const access = await manageConnectionAccess(options.auth, options.database, request);
-        const input = ConnectionReferenceSchema.parse(await request.json());
-        await options.database.disconnectConnection("gitlab", input.connectionId, {
+        await options.database.disconnectConnection("gitlab", requiredConnectionId(request), {
           sessionId: access.account.session.id,
           userId: access.account.account.id,
           membershipId: access.tenant.membership.id,
