@@ -219,6 +219,40 @@ describe("summarizeTrigger", () => {
     });
   });
 
+  it("summarizes a GitLab merge request by its title and author", () => {
+    const summary = summarizeTrigger("gitlab.merge_request", gitlabEvent());
+
+    assert.deepEqual(summary, {
+      provider: "gitlab",
+      headline: "Cache the project lookup",
+      actor: "alice",
+      externalUrl: "https://gitlab.example.com/acme/backend/-/merge_requests/7",
+    });
+  });
+
+  it("summarizes a GitLab comment by what it says, not by what it is attached to", () => {
+    const event = gitlabEvent();
+    const summary = summarizeTrigger("gitlab.note", {
+      ...event,
+      type: "note",
+      item: { ...event.item, type: "note", body: "/review please", noteableType: "merge_request" },
+    });
+
+    assert.equal(summary.provider, "gitlab");
+    assert.equal(summary.headline, "/review please");
+  });
+
+  it("renders an unreadable GitLab payload as a GitLab event rather than a manual run", () => {
+    const summary = summarizeTrigger("gitlab.merge_request", { nothing: "recognisable" });
+
+    assert.deepEqual(summary, {
+      provider: "gitlab",
+      headline: "GitLab event",
+      actor: null,
+      externalUrl: null,
+    });
+  });
+
   it("summarizes a manual run with the trigger and actor", () => {
     const summary = summarizeTrigger("manual.run", { trigger: "rollback", actor: "dana" });
 
@@ -230,3 +264,30 @@ describe("summarizeTrigger", () => {
     });
   });
 });
+
+function gitlabEvent() {
+  return {
+    id: "gitlab:connection:delivery",
+    type: "merge_request" as const,
+    connectionId: "11111111-1111-4111-8111-111111111111",
+    project: {
+      id: 4242,
+      pathWithNamespace: "acme/backend",
+      webUrl: "https://gitlab.example.com/acme/backend",
+    },
+    actor: { id: 41, username: "alice" },
+    item: {
+      type: "merge_request" as const,
+      iid: 7,
+      title: "Cache the project lookup",
+      body: "please check the invalidation path",
+      url: "https://gitlab.example.com/acme/backend/-/merge_requests/7",
+      action: "open",
+      sourceBranch: "cache-project-lookup",
+      targetBranch: "main",
+      noteableType: null,
+    },
+    receivedAt: new Date().toISOString(),
+    payload: {},
+  };
+}

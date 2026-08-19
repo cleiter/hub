@@ -12,6 +12,7 @@ import {
 } from "../auth/github-events.js";
 import { NormalizedDiscordMessageEventSchema } from "../triggers/discord/events.js";
 import { NormalizedMattermostMentionEventSchema } from "../triggers/mattermost/events.js";
+import { NormalizedGitLabEventSchema } from "../triggers/gitlab/events.js";
 import { NormalizedSlackMentionEventSchema } from "../triggers/slack/events.js";
 import { NormalizedLinearEventSchema } from "../triggers/linear/events.js";
 import { classifyGitHubEvent } from "../triggers/github/classification.js";
@@ -51,6 +52,8 @@ export function summarizeTrigger(source: string, payload: unknown): TriggerSumma
       return summarizeLinear(payload);
     case "mattermost":
       return summarizeMattermost(payload);
+    case "gitlab":
+      return summarizeGitLab(payload);
     default:
       return assertNever(provider, "summarizeTrigger");
   }
@@ -68,6 +71,7 @@ const PROVIDERS_BY_SOURCE_PREFIX: ReadonlyMap<string, ConnectionProvider> = new 
     discord: "discord",
     linear: "linear",
     mattermost: "mattermost",
+    gitlab: "gitlab",
   } satisfies Record<ConnectionProvider, ConnectionProvider>),
 );
 
@@ -262,6 +266,25 @@ function mattermostPermalink(event: {
 }): string | null {
   if (event.serverUrl === undefined || event.teamName === undefined) return null;
   return `${event.serverUrl.replace(/\/+$/u, "")}/${event.teamName}/pl/${event.postId}`;
+}
+
+/**
+ * A merge request and an issue are recognised by their title; a comment by what it says, since a
+ * comment's own title is its target's and reads as the same line for every comment on it.
+ */
+function summarizeGitLab(payload: unknown): TriggerSummary {
+  const event = NormalizedGitLabEventSchema.safeParse(payload);
+  if (!event.success) {
+    return { provider: "gitlab", headline: "GitLab event", actor: null, externalUrl: null };
+  }
+  const { item } = event.data;
+  const text = (item.type === "note" ? item.body : item.title) ?? "";
+  return {
+    provider: "gitlab",
+    headline: text.trim().length > 0 ? truncate(text.trim(), 96) : humanize(item.type),
+    actor: event.data.actor.username,
+    externalUrl: item.url,
+  };
 }
 
 function summarizeManual(payload: unknown): TriggerSummary {
